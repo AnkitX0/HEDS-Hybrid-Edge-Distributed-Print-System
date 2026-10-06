@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heds-agent"
+version = "0.1.0"
+description = "HEDS Edge Print Agent"
+authors = [{ name = "HEDS Engineering" }]
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+]
+
+[project.scripts]
+heds-agent = "heds_agent.main:main"

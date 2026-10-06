@@ -1,0 +1,159 @@
+import uuid
+from typing import List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.core.database import get_db
+from app.modules.tenants.models import Shop
+from app.modules.pricing.models import PricingRule
+from app.modules.queue.models import PrintJob, JobStatus
+from app.modules.orders.models import Order, OrderState
+from app.modules.printers.models import Printer, PrinterStatus
+from app.modules.agents.models import Agent, AgentStatus
+from app.api.v1.schemas import ShopPublicInfo
+from app.api.deps import require_shop_operator
+
+router = APIRouter(tags=["Shops"])
+
+
+@router.get("/shops/{shop_slug}", response_model=ShopPublicInfo)
+async def get_shop_by_slug(shop_slug: str, db: AsyncSession = Depends(get_db)):
+    """
+    Public shop landing endpoint accessed when a student scans the QR:
+    https://heds.local/s/{shop_slug}
+    """
+    stmt = (
+        select(Shop)
+        .options(selectinload(Shop.pricing_rules))
+        .where(Shop.slug == shop_slug, Shop.is_active == True)
+    )
+    res = await db.execute(stmt)
+    shop = res.scalar_one_or_none()
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Print shop '{shop_slug}' not found or inactive",
+        )
+
+    # Calculate active queue depth
+    queue_count_stmt = select(func.count(PrintJob.id)).where(
+        PrintJob.shop_id == shop.id,
+        PrintJob.status.in_([JobStatus.QUEUED, JobStatus.DISPATCHED, JobStatus.PRINTING]),
+    )
+    q_res = await db.execute(queue_count_stmt)
+    queue_length = q_res.scalar_one() or 0
+
+    # Estimated waiting time: ~1.5 minutes per waiting job
+    estimated_wait_minutes = max(1, queue_length * 2)
+
+    # Active pricing rules
+    pricing_info = {}
+    if shop.pricing_rules:
+        active_rule = next((r for r in shop.pricing_rules if r.is_active), shop.pricing_rules[0])
+        pricing_info = {
+            "bw_per_page_cents": active_rule.bw_per_page_cents,
+            "color_per_page_cents": active_rule.color_per_page_cents,
+            "duplex_discount_cents": active_rule.duplex_discount_cents,
+            "minimum_order_cents": active_rule.minimum_order_cents,
+            "paper_size": active_rule.paper_size,
+        }
+
+    return ShopPublicInfo(
+        id=str(shop.id),
+        name=shop.name,
+        slug=shop.slug,
+        is_active=shop.is_active,
+        is_queue_paused=shop.is_queue_paused,
+        queue_length=queue_length,
+        estimated_wait_minutes=estimated_wait_minutes,
+        pricing=pricing_info,
+    )
+
+
+@router.get("/shop/dashboard")
+async def get_shop_dashboard(
+    current_user=Depends(require_shop_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Operational summary metrics for the shop dashboard.
+    """
+    # Fetch shop
+    stmt = select(Shop).limit(1)  # Or scoped to user's shop membership
+    res = await db.execute(stmt)
+    shop = res.scalar_one_or_none()
+    if not shop:
+        raise HTTPException(status_code=404, detail="No shop configured")
+
+    # Queue counts
+    active_jobs_res = await db.execute(
+        select(func.count(PrintJob.id)).where(
+            PrintJob.shop_id == shop.id,
+            PrintJob.status.in_([JobStatus.DISPATCHED, JobStatus.PRINTING]),
+        )
+    )
+    active_jobs = active_jobs_res.scalar_one() or 0
+
+    waiting_jobs_res = await db.execute(
+        select(func.count(PrintJob.id)).where(
+            PrintJob.shop_id == shop.id,
+            PrintJob.status == JobStatus.QUEUED,
+        )
+    )
+    waiting_jobs = waiting_jobs_res.scalar_one() or 0
+
+    completed_jobs_res = await db.execute(
+        select(func.count(PrintJob.id)).where(
+            PrintJob.shop_id == shop.id,
+            PrintJob.status == JobStatus.COMPLETED,
+        )
+    )
+    completed_jobs = completed_jobs_res.scalar_one() or 0
+
+    failed_jobs_res = await db.execute(
+        select(func.count(PrintJob.id)).where(
+            PrintJob.shop_id == shop.id,
+            PrintJob.status.in_([JobStatus.FAILED, JobStatus.RECONCILING]),
+        )
+    )
+    failed_jobs = failed_jobs_res.scalar_one() or 0
+
+    # Revenue
+    revenue_res = await db.execute(
+        select(func.sum(Order.total_amount_cents)).where(
+            Order.shop_id == shop.id,
+            Order.status.in_([OrderState.PAID, OrderState.QUEUED, OrderState.DISPATCHED, OrderState.PRINTING, OrderState.PRINT_COMPLETED, OrderState.PICKUP_READY, OrderState.COMPLETED]),
+        )
+    )
+    revenue_cents = revenue_res.scalar_one() or 0
+
+    # Printers & Agents
+    printers_res = await db.execute(select(Printer).where(Printer.shop_id == shop.id))
+    printers = printers_res.scalars().all()
+    online_printers = sum(1 for p in printers if p.status == PrinterStatus.ONLINE)
+
+    agents_res = await db.execute(select(Agent).where(Agent.shop_id == shop.id))
+    agents = agents_res.scalars().all()
+
+    return {
+        "shop": {
+            "id": str(shop.id),
+            "name": shop.name,
+            "slug": shop.slug,
+            "is_queue_paused": shop.is_queue_paused,
+        },
+        "stats": {
+            "active_jobs": active_jobs,
+            "waiting_jobs": waiting_jobs,
+            "completed_today": completed_jobs,
+            "failed_jobs": failed_jobs,
+            "revenue_cents": revenue_cents,
+            "revenue_formatted": f"₹{revenue_cents / 100:.2f}",
+            "online_printers": online_printers,
+            "total_printers": len(printers),
+            "total_agents": len(agents),
+        },
+    }

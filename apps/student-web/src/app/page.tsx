@@ -1,80 +1,61 @@
 import Link from "next/link";
-import { QrCode, Printer, ShieldCheck, Zap } from "lucide-react";
+import { QrCode, ArrowRight, Store } from "lucide-react";
 
 export default function StudentHomePage() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[75vh] text-center space-y-6">
-      <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner">
-        <QrCode className="w-8 h-8" />
-      </div>
-
-      <div className="space-y-2">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          Print Without Standing in Line
+    <div className="flex flex-col items-center justify-center min-h-[70vh] space-y-6">
+      <div className="text-center space-y-1.5">
+        <div className="w-10 h-10 bg-slate-200 text-slate-800 rounded-md mx-auto flex items-center justify-center mb-3">
+          <QrCode className="w-5 h-5" />
+        </div>
+        <h1 className="text-lg font-semibold text-slate-900 tracking-tight">
+          Scan Shop Counter QR
         </h1>
-        <p className="text-sm text-slate-600 max-w-xs mx-auto">
-          Scan the QR code at your campus print shop to upload documents, pay seamlessly, and track your queue in real time.
+        <p className="text-xs text-slate-600 max-w-xs mx-auto">
+          Scan the QR code displayed at your campus print shop to upload documents, configure pages, and pay.
         </p>
       </div>
 
-      <div className="w-full bg-white rounded-xl border border-slate-200 p-5 shadow-sm text-left space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Demo Print Shops
-        </h2>
+      {/* Local Storefront Selector */}
+      <div className="w-full bg-white rounded-md border border-slate-200 p-4 space-y-3">
+        <div className="flex items-center gap-1.5 text-slate-500 pb-1 border-b border-slate-100">
+          <Store className="w-3.5 h-3.5" />
+          <span className="text-[11px] font-medium uppercase tracking-wider">
+            Available Print Shops
+          </span>
+        </div>
 
-        <Link
-          href="/s/campus-xerox"
-          className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:border-emerald-300 hover:bg-emerald-50/50 transition-all group"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-              CX
-            </div>
+        <div className="space-y-2">
+          <Link
+            href="/s/campus-xerox"
+            className="flex items-center justify-between p-3 rounded border border-slate-200 hover:border-blue-500 hover:bg-slate-50 transition-colors group"
+          >
             <div>
-              <p className="font-semibold text-sm text-slate-900 group-hover:text-emerald-700">
+              <p className="font-semibold text-xs text-slate-900 group-hover:text-blue-600">
                 Campus Xerox & Print Hub
               </p>
-              <p className="text-xs text-slate-500">Slug: campus-xerox (Online)</p>
+              <p className="text-[11px] text-slate-500 font-mono">/s/campus-xerox &bull; Active</p>
             </div>
-          </div>
-          <span className="text-xs font-medium text-emerald-600">&rarr;</span>
-        </Link>
+            <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
+          </Link>
 
-        <Link
-          href="/s/eng-press"
-          className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:border-slate-300 transition-all group"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-sm">
-              EP
-            </div>
+          <Link
+            href="/s/eng-press"
+            className="flex items-center justify-between p-3 rounded border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors group"
+          >
             <div>
-              <p className="font-semibold text-sm text-slate-900">
+              <p className="font-semibold text-xs text-slate-900">
                 Engineering Block Digital Press
               </p>
-              <p className="text-xs text-slate-500">Slug: eng-press</p>
+              <p className="text-[11px] text-slate-500 font-mono">/s/eng-press</p>
             </div>
-          </div>
-          <span className="text-xs font-medium text-slate-400">&rarr;</span>
-        </Link>
+            <ArrowRight className="w-4 h-4 text-slate-400" />
+          </Link>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 w-full text-center pt-2">
-        <div className="p-2 rounded-lg bg-slate-100/70 border border-slate-200/50">
-          <Zap className="w-4 h-4 mx-auto text-amber-500 mb-1" />
-          <p className="text-[11px] font-medium text-slate-700">Zero Wait</p>
-          <p className="text-[9px] text-slate-400">No WhatsApp</p>
-        </div>
-        <div className="p-2 rounded-lg bg-slate-100/70 border border-slate-200/50">
-          <Printer className="w-4 h-4 mx-auto text-blue-500 mb-1" />
-          <p className="text-[11px] font-medium text-slate-700">Auto Queue</p>
-          <p className="text-[9px] text-slate-400">Real-time ETA</p>
-        </div>
-        <div className="p-2 rounded-lg bg-slate-100/70 border border-slate-200/50">
-          <ShieldCheck className="w-4 h-4 mx-auto text-emerald-500 mb-1" />
-          <p className="text-[11px] font-medium text-slate-700">Privacy Hold</p>
-          <p className="text-[9px] text-slate-400">OTP Pickup</p>
-        </div>
+      <div className="text-center text-[11px] text-slate-500 max-w-xs">
+        No account required. Your order will be assigned a secure guest access token for live queue tracking and pickup verification.
       </div>
     </div>
   );

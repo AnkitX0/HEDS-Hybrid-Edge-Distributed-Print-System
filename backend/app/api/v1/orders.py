@@ -22,7 +22,7 @@ from app.modules.orders.models import (
     Scaling,
 )
 from app.modules.queue.models import PrintJob, JobStatus
-from app.modules.pickups.models import Pickup
+from app.api.deps import require_shop_operator
 from app.api.v1.schemas import OrderResponse
 
 router = APIRouter(tags=["Orders"])
@@ -219,3 +219,58 @@ async def get_order_by_token(guest_token: str, db: AsyncSession = Depends(get_db
         pickup_otp=plain_otp,
         created_at=order.created_at,
     )
+
+
+@router.get("/shop/orders")
+async def list_shop_orders(
+    status: Optional[str] = None,
+    limit: int = 50,
+    current_user=Depends(require_shop_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Operator endpoint: List recent orders with search and status filtering.
+    """
+    stmt = (
+        select(Order)
+        .options(
+            selectinload(Order.document),
+            selectinload(Order.print_specification),
+            selectinload(Order.print_job).selectinload(PrintJob.printer),
+            selectinload(Order.payment),
+        )
+        .order_by(Order.created_at.desc())
+        .limit(min(100, max(1, limit)))
+    )
+    if status:
+        try:
+            target_state = OrderState(status.upper())
+            stmt = stmt.where(Order.status == target_state)
+        except ValueError:
+            pass
+
+    res = await db.execute(stmt)
+    orders = res.scalars().all()
+
+    items = []
+    for o in orders:
+        doc = o.document
+        spec = o.print_specification
+        job = o.print_job
+        items.append({
+            "id": str(o.id),
+            "order_number": o.order_number,
+            "status": o.status.value,
+            "total_amount_cents": o.total_amount_cents,
+            "currency": o.currency,
+            "document_name": doc.original_filename if doc else "N/A",
+            "pages": doc.page_count if doc else 1,
+            "copies": spec.copies if spec else 1,
+            "color_mode": spec.color_mode.value if spec else "BW",
+            "duplex": spec.duplex if spec else False,
+            "paper_size": spec.paper_size if spec else "A4",
+            "printer_name": job.printer.name if job and job.printer else None,
+            "payment_status": o.payment.status.value if o.payment else ("PAID" if o.status not in [OrderState.CREATED, OrderState.PAYMENT_PENDING, OrderState.PAYMENT_FAILED] else "PENDING"),
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+    return items

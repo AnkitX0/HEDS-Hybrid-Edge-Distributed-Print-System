@@ -1,7 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   Clock,
@@ -11,6 +12,7 @@ import {
   AlertTriangle,
   RotateCw,
 } from "lucide-react";
+import { apiClient, ApiError } from "@/lib/api/client";
 
 interface OrderDetail {
   id: string;
@@ -32,20 +34,79 @@ interface OrderDetail {
 export default function OrderTrackingPage() {
   const params = useParams();
   const guestToken = params.guest_token as string;
+  const queryClient = useQueryClient();
+  const [sseActive, setSseActive] = useState<boolean>(false);
 
   const { data: order, isLoading, error, refetch } = useQuery<OrderDetail>({
     queryKey: ["order", guestToken],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/orders/${guestToken}`);
-      if (!res.ok) throw new Error("Order not found");
-      return res.json();
+      return apiClient.get<OrderDetail>(`/api/v1/orders/${guestToken}`);
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status === "COMPLETED" || status === "CANCELLED") return false;
-      return 2500;
+      // When SSE connection is healthy, suppress polling; fallback to 2500ms on SSE disconnect
+      return sseActive ? false : 2500;
     },
   });
+
+  // Server-Sent Events (SSE) Primary Connection with Polling Fallback
+  useEffect(() => {
+    if (!guestToken) return;
+    if (order?.status === "COMPLETED" || order?.status === "CANCELLED") {
+      setSseActive(false);
+      return;
+    }
+
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource(`/api/v1/orders/${guestToken}/events`);
+
+      eventSource.onopen = () => {
+        setSseActive(true);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload && payload.status) {
+            queryClient.setQueryData<OrderDetail>(["order", guestToken], (prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                status: payload.status,
+                queue_position:
+                  payload.queue_position !== undefined
+                    ? payload.queue_position
+                    : prev.queue_position,
+                estimated_wait_minutes:
+                  payload.estimated_wait_minutes !== undefined
+                    ? payload.estimated_wait_minutes
+                    : prev.estimated_wait_minutes,
+                pickup_otp:
+                  payload.pickup_otp !== undefined ? payload.pickup_otp : prev.pickup_otp,
+              };
+            });
+          }
+        } catch {
+          // Ignore invalid message format
+        }
+      };
+
+      eventSource.onerror = () => {
+        setSseActive(false);
+        eventSource?.close();
+      };
+    } catch {
+      setSseActive(false);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [guestToken, order?.status, queryClient]);
 
   if (isLoading) {
     return (
@@ -57,13 +118,47 @@ export default function OrderTrackingPage() {
   }
 
   if (error || !order) {
+    const apiErr = error instanceof ApiError ? error : null;
+    const isNotFound = apiErr?.status === 404 || apiErr?.code === "NOT_FOUND";
+    const isConnError =
+      apiErr?.code === "NETWORK_ERROR" ||
+      apiErr?.code === "BACKEND_UNAVAILABLE" ||
+      apiErr?.status === 503;
+
     return (
-      <div className="p-4 bg-white rounded-md border border-red-200 text-center space-y-2">
-        <AlertTriangle className="w-6 h-6 mx-auto text-red-500" />
-        <h2 className="text-sm font-semibold text-slate-900">Order Not Found</h2>
-        <p className="text-xs text-slate-600">
-          The requested order does not exist or has expired. Please verify your link.
-        </p>
+      <div className="p-6 bg-white rounded-md border border-slate-200 text-center space-y-3">
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto ${
+            isNotFound ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"
+          }`}
+        >
+          <AlertTriangle className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">
+            {isNotFound
+              ? "Order Not Found"
+              : isConnError
+              ? "Cannot Connect to Print Service"
+              : "Order Tracking Unavailable"}
+          </h2>
+          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto">
+            {isNotFound
+              ? "The requested print order does not exist or has expired. Please verify your tracking link."
+              : isConnError
+              ? "Unable to reach the HEDS print cluster. Please verify the backend service is running and retry."
+              : "Unable to retrieve order status at this time. Please try again."}
+          </p>
+        </div>
+        <div className="pt-2">
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -99,9 +194,21 @@ export default function OrderTrackingPage() {
               {order.order_number}
             </h1>
           </div>
-          <span className="text-[11px] text-slate-500 font-mono">
-            {order.created_at ? new Date(order.created_at).toLocaleTimeString() : ""}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className="text-[11px] text-slate-500 font-mono">
+              {order.created_at ? new Date(order.created_at).toLocaleTimeString() : ""}
+            </span>
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-mono">
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  sseActive ? "bg-emerald-500 animate-pulse" : "bg-amber-400"
+                }`}
+              />
+              <span className="text-slate-500">
+                {sseActive ? "Realtime (SSE)" : "Polling (2.5s)"}
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* 4-Step Restrained Logistics Stepper */}

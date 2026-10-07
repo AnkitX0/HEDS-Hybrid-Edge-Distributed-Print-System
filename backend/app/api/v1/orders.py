@@ -22,7 +22,7 @@ from app.modules.orders.models import (
     Scaling,
 )
 from app.modules.queue.models import PrintJob, JobStatus
-from app.api.deps import require_shop_operator
+from app.api.deps import require_shop_operator, get_authorized_shop
 from app.api.v1.schemas import OrderResponse
 
 router = APIRouter(tags=["Orders"])
@@ -221,15 +221,76 @@ async def get_order_by_token(guest_token: str, db: AsyncSession = Depends(get_db
     )
 
 
+@router.get("/orders/{guest_token}/events")
+async def stream_order_events(guest_token: str):
+    """
+    Server-Sent Events (SSE) stream for sub-second order progress updates.
+    Yields JSON payloads whenever order state mutates until reaching terminal state.
+    """
+    import json
+    import asyncio
+    from fastapi.responses import StreamingResponse
+    from app.core.database import AsyncSessionLocal
+
+    async def event_generator():
+        last_status = None
+        for _ in range(60):  # Stream for up to ~90s before native browser auto-reconnect
+            async with AsyncSessionLocal() as session:
+                res = await session.execute(
+                    select(Order)
+                    .options(
+                        selectinload(Order.document),
+                        selectinload(Order.pickup),
+                        selectinload(Order.print_job),
+                    )
+                    .where(Order.guest_access_token == guest_token)
+                )
+                order = res.scalar_one_or_none()
+                if not order:
+                    yield "event: error\ndata: {\"error\": \"Order not found\"}\n\n"
+                    break
+
+                curr_status = order.status.value
+                plain_otp = getattr(order, "_last_plain_otp", None)
+
+                if curr_status != last_status:
+                    last_status = curr_status
+                    payload = {
+                        "id": str(order.id),
+                        "order_number": order.order_number,
+                        "status": curr_status,
+                        "pickup_otp": plain_otp,
+                        "total_amount_cents": order.total_amount_cents,
+                    }
+                    yield f"event: status\ndata: {json.dumps(payload)}\n\n"
+
+                if curr_status in ["COMPLETED", "CANCELLED", "EXPIRED"]:
+                    break
+
+            yield ": keep-alive\n\n"
+            await asyncio.sleep(1.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+
 @router.get("/shop/orders")
 async def list_shop_orders(
     status: Optional[str] = None,
     limit: int = 50,
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Operator endpoint: List recent orders with search and status filtering.
+    Operator endpoint: List recent orders with search and status filtering, scoped to authorized shop.
     """
     stmt = (
         select(Order)
@@ -239,6 +300,7 @@ async def list_shop_orders(
             selectinload(Order.print_job).selectinload(PrintJob.printer),
             selectinload(Order.payment),
         )
+        .where(Order.shop_id == shop.id)
         .order_by(Order.created_at.desc())
         .limit(min(100, max(1, limit)))
     )

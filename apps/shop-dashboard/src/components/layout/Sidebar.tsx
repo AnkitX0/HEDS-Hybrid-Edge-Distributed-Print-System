@@ -31,6 +31,9 @@ interface SidebarProps {
   operatorName: string;
   onLogout: () => void;
   waitingQueueCount?: number;
+  availableShops?: Array<{ id: string; name: string; slug: string; is_queue_paused?: boolean }>;
+  selectedShopId?: string | null;
+  onSelectShop?: (shopId: string) => void;
 }
 
 export function Sidebar({
@@ -40,6 +43,9 @@ export function Sidebar({
   operatorName,
   onLogout,
   waitingQueueCount = 0,
+  availableShops = [],
+  selectedShopId = null,
+  onSelectShop,
 }: SidebarProps) {
   const navSections = [
     {
@@ -94,8 +100,40 @@ export function Sidebar({
           </div>
         </div>
 
+        {/* Shop Selector Context */}
+        <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/40">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Active Shop
+            </span>
+            {availableShops.length > 1 && (
+              <span className="text-[9px] text-blue-400 font-mono">
+                {availableShops.length} stores
+              </span>
+            )}
+          </div>
+          {availableShops.length > 1 ? (
+            <select
+              value={selectedShopId || ""}
+              onChange={(e) => onSelectShop && onSelectShop(e.target.value)}
+              className="w-full text-xs bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              {availableShops.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} {s.is_queue_paused ? "• Paused" : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-xs font-medium text-slate-200 truncate">
+              {shopName || "Loading shop..."}
+            </div>
+          )}
+        </div>
+
         {/* Navigation Groups */}
         <div className="p-2 space-y-4 pt-3 overflow-y-auto">
+
           {navSections.map((section) => (
             <div key={section.group} className="space-y-0.5">
               <span className="px-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">

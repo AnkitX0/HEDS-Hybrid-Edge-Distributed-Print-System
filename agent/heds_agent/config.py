@@ -11,8 +11,8 @@ class AgentSettings(BaseSettings):
 
     HEDS_CLOUD_URL: str = "http://localhost:8000"
     HEDS_AGENT_KEY: str = "agent-dev-key-12345"
-    HEDS_AGENT_ID: str = "db487458-93fe-4ee9-8603-bc5879b3a494"
-    HEDS_SHOP_ID: str = "0309f86f-2e64-4790-ae60-2e133de250aa"
+    HEDS_AGENT_ID: str = "467674bf-343b-4484-adde-efc923c87db3"
+    HEDS_SHOP_ID: str = "b52a6ecb-5dbc-4e41-a8cb-88f05f68859a"
 
     SQLITE_PATH: str = "local_queue.db"
     POLL_INTERVAL_SECONDS: float = 3.0

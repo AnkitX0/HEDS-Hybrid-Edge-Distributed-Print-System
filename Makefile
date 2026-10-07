@@ -6,17 +6,19 @@ PIP = .venv/bin/pip
 help:
 	@echo "HEDS — Hybrid Edge Distributed Print System"
 	@echo "Available commands:"
+	@echo "  make docker-up    - Build and launch the entire stack (Postgres + Backend + Frontends + Agent)"
+	@echo "  make docker-down  - Stop all running containers"
 	@echo "  make setup        - Initialize virtualenv, install dependencies"
-	@echo "  make up           - Start PostgreSQL & MinIO via Docker"
+	@echo "  make up           - Start PostgreSQL via Docker for local development"
 	@echo "  make down         - Stop Docker containers"
 	@echo "  make migrate      - Run database migrations"
 	@echo "  make seed         - Seed test data (shops, users, printers, orders)"
+	@echo "  make demo         - Run interactive examiner demo reset"
 	@echo "  make dev-backend  - Run FastAPI backend locally"
 	@echo "  make dev-agent    - Run HEDS Edge Print Agent locally"
 	@echo "  make dev-student  - Run Student Web app"
 	@echo "  make dev-shop     - Run Shop Dashboard app"
-	@echo "  make test         - Run all test suites (unit, integration, reliability, chaos)"
-	@echo "  make test-rel     - Run reliability tests (duplicate webhook, lease timeout)"
+	@echo "  make test         - Run all test suites"
 
 setup:
 	python3 -m venv .venv
@@ -26,8 +28,14 @@ setup:
 	cd apps/student-web && npm install
 	cd apps/shop-dashboard && npm install
 
+docker-up:
+	docker compose up --build -d
+
+docker-down:
+	docker compose down
+
 up:
-	docker compose up -d postgres minio
+	docker compose up -d postgres
 
 down:
 	docker compose down

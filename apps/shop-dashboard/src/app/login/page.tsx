@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
+import { apiClient, ApiError } from "@/lib/api/client";
+
+interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  role: string;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("operator@campus-xerox.local");
@@ -18,23 +26,28 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const data = await apiClient.post<LoginResponse>("/api/v1/auth/login", {
+        email: email.trim(),
+        password: password.trim(),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Invalid email or password");
-      }
-
-      const data = await res.json();
       localStorage.setItem("heds_token", data.access_token);
       localStorage.setItem("heds_user_role", data.role);
       router.push("/dashboard");
     } catch (err: any) {
-      setError(err.message || "Failed to authenticate session");
+      if (err instanceof ApiError) {
+        if (err.status === 401 || err.code === "UNAUTHORIZED") {
+          setError("Invalid email or password. Please check your credentials.");
+        } else if (err.code === "NETWORK_ERROR" || err.code === "BACKEND_UNAVAILABLE" || err.status === 503) {
+          setError("Cannot connect to HEDS server. Please check your network or ensure the backend is running.");
+        } else if (err.status >= 500) {
+          setError("Something went wrong on the server. Please try again.");
+        } else {
+          setError(err.message || "Failed to authenticate session.");
+        }
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
       setLoading(false);
     }
   };

@@ -22,6 +22,36 @@ class CloudClient:
     async def close(self):
         await self._client.aclose()
 
+    async def register_agent(
+        self,
+        name: str = "campus-agent-01",
+        hostname: str = "localhost",
+        os_info: str = "Linux",
+    ) -> bool:
+        """
+        Dynamically registers or re-enrolls the agent with the cloud and updates headers.
+        """
+        try:
+            resp = await self._client.post(
+                "/api/v1/agents/register",
+                json={
+                    "shop_id": self.shop_id,
+                    "name": name,
+                    "token": self.agent_key,
+                    "hostname": hostname,
+                    "os_info": os_info,
+                    "version": "0.1.0",
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                self.agent_id = data["agent_id"]
+                self._client.headers["X-Agent-ID"] = self.agent_id
+                return True
+            return False
+        except Exception:
+            return False
+
     async def send_heartbeat(
         self,
         printers: List[Dict[str, Any]],
@@ -38,8 +68,22 @@ class CloudClient:
                     "printers": printers,
                 },
             )
+            if resp.status_code == 401:
+                # Attempt automatic re-enrollment / registration
+                enrolled = await self.register_agent()
+                if enrolled:
+                    retry_resp = await self._client.post(
+                        "/api/v1/agents/heartbeat",
+                        json={
+                            "agent_id": self.agent_id,
+                            "local_queue_length": local_queue_length,
+                            "uptime_seconds": uptime_seconds,
+                            "printers": printers,
+                        },
+                    )
+                    return retry_resp.status_code == 200
             return resp.status_code == 200
-        except Exception as e:
+        except Exception:
             return False
 
     async def poll_next_job(self) -> Optional[Dict[str, Any]]:

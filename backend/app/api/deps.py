@@ -74,3 +74,57 @@ async def verify_agent(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Agent credentials")
 
     return agent
+
+
+async def get_authorized_shop(
+    x_shop_id: Optional[str] = Header(None, alias="X-Shop-ID"),
+    shop_id: Optional[str] = None,
+    current_user: User = Depends(require_shop_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.modules.tenants.models import Shop, ShopMember
+    from sqlalchemy.orm import selectinload
+
+    target_id_str = x_shop_id or shop_id
+    target_uuid = None
+    if target_id_str:
+        try:
+            target_uuid = uuid.UUID(target_id_str)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid shop ID format")
+
+    if current_user.role == UserRole.PLATFORM_ADMIN:
+        if target_uuid:
+            stmt = select(Shop).where(Shop.id == target_uuid)
+        else:
+            stmt = select(Shop).where(Shop.is_active == True).limit(1)
+        res = await db.execute(stmt)
+        shop = res.scalar_one_or_none()
+        if not shop:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Print shop not found")
+        return shop
+
+    # For SHOP_OPERATOR or SHOP_ADMIN, scope strictly to memberships
+    stmt = (
+        select(ShopMember)
+        .options(selectinload(ShopMember.shop))
+        .where(ShopMember.user_id == current_user.id)
+    )
+    res = await db.execute(stmt)
+    memberships = res.scalars().all()
+
+    if not memberships:
+        raise ForbiddenException("User is not associated with any print shop")
+
+    if target_uuid:
+        matched = next((m for m in memberships if m.shop_id == target_uuid), None)
+        if not matched or not matched.shop:
+            raise ForbiddenException("Access denied: You do not have operator permissions for this shop")
+        return matched.shop
+
+    # Fallback to first membership shop
+    active_member = next((m for m in memberships if m.shop and m.shop.is_active), memberships[0])
+    if not active_member.shop:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Associated shop not found")
+    return active_member.shop
+

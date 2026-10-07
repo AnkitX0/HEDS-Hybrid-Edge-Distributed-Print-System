@@ -6,16 +6,63 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.modules.tenants.models import Shop
+from app.modules.tenants.models import Shop, ShopMember
 from app.modules.pricing.models import PricingRule
 from app.modules.queue.models import PrintJob, JobStatus
 from app.modules.orders.models import Order, OrderState
 from app.modules.printers.models import Printer, PrinterStatus
 from app.modules.agents.models import Agent, AgentStatus
+from app.modules.users.models import User, UserRole
 from app.api.v1.schemas import ShopPublicInfo
-from app.api.deps import require_shop_operator
+from app.api.deps import require_shop_operator, get_authorized_shop
 
 router = APIRouter(tags=["Shops"])
+
+
+@router.get("/operator/shops")
+async def list_operator_shops(
+    current_user: User = Depends(require_shop_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all print shops the authenticated operator/admin has authorized access to.
+    """
+    if current_user.role == UserRole.PLATFORM_ADMIN:
+        stmt = select(Shop).where(Shop.is_active == True).order_by(Shop.name)
+        res = await db.execute(stmt)
+        shops = res.scalars().all()
+        return [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "slug": s.slug,
+                "is_active": s.is_active,
+                "is_queue_paused": s.is_queue_paused,
+                "role": "PLATFORM_ADMIN",
+            }
+            for s in shops
+        ]
+
+    stmt = (
+        select(ShopMember)
+        .options(selectinload(ShopMember.shop))
+        .where(ShopMember.user_id == current_user.id)
+    )
+    res = await db.execute(stmt)
+    memberships = res.scalars().all()
+
+    return [
+        {
+            "id": str(m.shop.id),
+            "name": m.shop.name,
+            "slug": m.shop.slug,
+            "is_active": m.shop.is_active,
+            "is_queue_paused": m.shop.is_queue_paused,
+            "role": m.role.value if hasattr(m.role, "value") else str(m.role),
+        }
+        for m in memberships
+        if m.shop and m.shop.is_active
+    ]
 
 
 @router.get("/shops/{shop_slug}", response_model=ShopPublicInfo)
@@ -75,18 +122,13 @@ async def get_shop_by_slug(shop_slug: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/shop/dashboard")
 async def get_shop_dashboard(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Operational summary metrics for the shop dashboard.
+    Operational summary metrics for the shop dashboard, authoritatively scoped to authorized shop.
     """
-    # Fetch shop
-    stmt = select(Shop).limit(1)  # Or scoped to user's shop membership
-    res = await db.execute(stmt)
-    shop = res.scalar_one_or_none()
-    if not shop:
-        raise HTTPException(status_code=404, detail="No shop configured")
+
 
     # Queue counts
     active_jobs_res = await db.execute(

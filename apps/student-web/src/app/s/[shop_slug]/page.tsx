@@ -12,7 +12,9 @@ import {
   CreditCard,
   Check,
   X,
+  RotateCw,
 } from "lucide-react";
+import { apiClient, ApiError } from "@/lib/api/client";
 
 interface ShopInfo {
   id: string;
@@ -62,12 +64,10 @@ export default function ShopOrderPage() {
   };
 
   // Fetch shop metadata and queue state
-  const { data: shop, isLoading, error } = useQuery<ShopInfo>({
+  const { data: shop, isLoading, error, refetch } = useQuery<ShopInfo>({
     queryKey: ["shop", shopSlug],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/shops/${shopSlug}`);
-      if (!res.ok) throw new Error("Print shop not found or inactive");
-      return res.json();
+      return apiClient.get<ShopInfo>(`/api/v1/shops/${shopSlug}`);
     },
     refetchInterval: 5000,
   });
@@ -147,33 +147,25 @@ export default function ShopOrderPage() {
       formData.append("paper_size", paperSize);
       formData.append("page_range", pageRange);
 
-      const res = await fetch(`/api/v1/shops/${shopSlug}/orders`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || err.error?.message || "Failed to create order");
-      }
-
-      const orderData = await res.json();
+      const orderData = await apiClient.upload<any>(`/api/v1/shops/${shopSlug}/orders`, formData);
 
       // Complete sandbox payment
-      const payRes = await fetch(`/api/v1/orders/${orderData.guest_access_token}/payment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ simulate_status: "success" }),
+      await apiClient.post<any>(`/api/v1/orders/${orderData.guest_access_token}/payment`, {
+        simulate_status: "success",
       });
-
-      if (!payRes.ok) {
-        throw new Error("Sandbox payment execution failed.");
-      }
 
       // Route directly to real-time order tracking
       router.push(`/orders/${orderData.guest_access_token}`);
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to submit print order.");
+      if (err instanceof ApiError) {
+        if (err.code === "NETWORK_ERROR" || err.status === 503) {
+          setErrorMessage("Cannot connect to print server. Please retry in a few moments.");
+        } else {
+          setErrorMessage(err.message || "Failed to process order.");
+        }
+      } else {
+        setErrorMessage(err.message || "Failed to submit print order.");
+      }
       setSubmitting(false);
     }
   };
@@ -188,13 +180,47 @@ export default function ShopOrderPage() {
   }
 
   if (error || !shop) {
+    const apiErr = error instanceof ApiError ? error : null;
+    const isNotFound = apiErr?.status === 404 || apiErr?.code === "NOT_FOUND";
+    const isConnError =
+      apiErr?.code === "NETWORK_ERROR" ||
+      apiErr?.code === "BACKEND_UNAVAILABLE" ||
+      apiErr?.status === 503;
+
     return (
-      <div className="p-4 bg-white rounded-md border border-red-200 text-center space-y-2">
-        <AlertCircle className="w-6 h-6 mx-auto text-red-500" />
-        <h2 className="text-sm font-semibold text-slate-900">Shop Unavailable</h2>
-        <p className="text-xs text-slate-600">
-          This shop URL is invalid or inactive. Please scan the QR counter code again.
-        </p>
+      <div className="p-6 bg-white rounded-md border border-slate-200 text-center space-y-3">
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto ${
+            isNotFound ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"
+          }`}
+        >
+          <AlertCircle className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">
+            {isNotFound
+              ? "Shop Not Found"
+              : isConnError
+              ? "Cannot Connect to Print Server"
+              : "Shop Unavailable"}
+          </h2>
+          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto">
+            {isNotFound
+              ? `We could not find a registered print shop matching "${shopSlug}". Please verify the QR code on the counter.`
+              : isConnError
+              ? "Unable to reach the HEDS backend service. If running locally or via Docker, please verify the backend container is healthy."
+              : "This shop is temporarily unable to accept new print jobs. Please scan the counter QR again or check with the operator."}
+          </p>
+        </div>
+        <div className="pt-2">
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            Retry Connection
+          </button>
+        </div>
       </div>
     );
   }

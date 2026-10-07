@@ -11,17 +11,22 @@ from app.modules.agents.models import Agent, AgentStatus
 from app.modules.pricing.models import PricingRule
 from app.modules.audit.models import AuditLog
 from app.modules.tenants.models import Shop
-from app.api.deps import require_shop_operator, require_shop_admin
+from app.api.deps import require_shop_operator, require_shop_admin, get_authorized_shop
 
 router = APIRouter(tags=["Shop Administration"])
 
 
 @router.get("/shop/printers")
 async def list_shop_printers(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Printer).options(selectinload(Printer.agent)).order_by(Printer.created_at.desc())
+    stmt = (
+        select(Printer)
+        .options(selectinload(Printer.agent))
+        .where(Printer.shop_id == shop.id)
+        .order_by(Printer.created_at.desc())
+    )
     res = await db.execute(stmt)
     printers = res.scalars().all()
 
@@ -139,10 +144,15 @@ async def trigger_printer_test_page(
 
 @router.get("/shop/agents")
 async def list_shop_agents(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Agent).options(selectinload(Agent.printers)).order_by(Agent.created_at.desc())
+    stmt = (
+        select(Agent)
+        .options(selectinload(Agent.printers))
+        .where(Agent.shop_id == shop.id)
+        .order_by(Agent.created_at.desc())
+    )
     res = await db.execute(stmt)
     agents = res.scalars().all()
 
@@ -165,10 +175,15 @@ async def list_shop_agents(
 
 @router.get("/shop/audit-logs")
 async def get_audit_logs(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(100)
+    stmt = (
+        select(AuditLog)
+        .where(AuditLog.shop_id == shop.id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(100)
+    )
     res = await db.execute(stmt)
     logs = res.scalars().all()
 
@@ -189,10 +204,14 @@ async def get_audit_logs(
 
 @router.get("/shop/pricing")
 async def get_pricing_rules(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(PricingRule).order_by(PricingRule.created_at.desc())
+    stmt = (
+        select(PricingRule)
+        .where(PricingRule.shop_id == shop.id)
+        .order_by(PricingRule.created_at.desc())
+    )
     res = await db.execute(stmt)
     rules = res.scalars().all()
 
@@ -215,13 +234,20 @@ async def get_pricing_rules(
 async def update_pricing_rule(
     rule_id: str,
     payload: Dict[str, Any],
+    shop: Shop = Depends(get_authorized_shop),
     current_user=Depends(require_shop_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    res = await db.execute(select(PricingRule).where(PricingRule.id == uuid.UUID(rule_id)))
+    res = await db.execute(
+        select(PricingRule).where(
+            PricingRule.id == uuid.UUID(rule_id),
+            PricingRule.shop_id == shop.id,
+        )
+    )
     rule = res.scalar_one_or_none()
     if not rule:
-        raise HTTPException(status_code=404, detail="Pricing rule not found")
+        raise HTTPException(status_code=404, detail="Pricing rule not found for this shop")
+
 
     if "bw_per_page_cents" in payload:
         rule.bw_per_page_cents = payload["bw_per_page_cents"]

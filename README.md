@@ -43,41 +43,64 @@ Student Receives Salted 6-Digit Pickup OTP → Shop Operator Verifies OTP → `C
 
 ## Quickstart
 
-### 1. Prerequisites
-- Python 3.10+
-- Node.js 18+
-- Docker & Docker Compose
+### Option A: Single-Command Full Stack (Docker)
 
-### 2. Environment Setup
+Run the entire system (Database + Backend + Both Frontends + Edge Agent) with a single command:
+
 ```bash
-cp .env.example .env
-make setup
+docker compose up --build
+```
+*(or via `make docker-up`)*
+
+This single command automatically:
+1. Starts **PostgreSQL 16** with persistent storage.
+2. Runs all database schema migrations (`alembic upgrade head`).
+3. Seeds realistic campus shop demonstration data (`scripts/demo_seed.py`).
+4. Launches the **FastAPI Backend Core** on [http://localhost:8000](http://localhost:8000) (Interactive Swagger Docs at [http://localhost:8000/docs](http://localhost:8000/docs)).
+5. Launches the **Student Web App** on [http://localhost:3000/s/campus-xerox](http://localhost:3000/s/campus-xerox).
+6. Launches the **Shop Operator Dashboard** on [http://localhost:3001/dashboard](http://localhost:3001/dashboard).
+7. Launches the **Edge Print Agent** in mock simulation mode to process queue leases automatically.
+
+To stop the entire stack:
+```bash
+docker compose down
 ```
 
-### 3. Start Database & Run Migrations
-```bash
-make up        # Starts PostgreSQL and MinIO in Docker
-make migrate   # Runs Alembic migrations
-make seed      # Seeds realistic shops, users, agents, printers, and 20 orders
-```
+---
 
-### 4. Run All Services Locally
-In separate terminals:
-```bash
-# Terminal 1: Backend API (http://localhost:8000/docs)
-make dev-backend
+### Option B: Local Development (Bare Metal / Python Virtualenv)
 
-# Terminal 2: Edge Print Agent (Simulates local printer execution)
-make dev-agent
+If you prefer running services directly on your host machine for development:
 
-# Terminal 3: Student Web Portal (http://localhost:3000/s/campus-xerox)
-make dev-student
+1. **Environment Setup**:
+   ```bash
+   cp .env.example .env
+   make setup
+   ```
 
-# Terminal 4: Shop Operator Dashboard (http://localhost:3001)
-make dev-shop
-```
+2. **Start Database & Initialize**:
+   ```bash
+   make up        # Starts PostgreSQL in Docker
+   make migrate   # Runs Alembic migrations
+   make seed      # Seeds realistic shop, users, printers
+   ```
 
-Default credentials:
+3. **Run Services** (in separate terminals or tmux):
+   ```bash
+   # Terminal 1: Backend API (http://localhost:8000/docs)
+   make dev-backend
+
+   # Terminal 2: Edge Print Agent (Simulates local printer execution)
+   make dev-agent
+
+   # Terminal 3: Student Web Portal (http://localhost:3000/s/campus-xerox)
+   make dev-student
+
+   # Terminal 4: Shop Operator Dashboard (http://localhost:3001)
+   make dev-shop
+   ```
+
+Default Login Credentials:
 - **Operator**: `operator@campus-xerox.local` / `operator123`
 - **Admin**: `admin@campus-xerox.local` / `admin123`
 

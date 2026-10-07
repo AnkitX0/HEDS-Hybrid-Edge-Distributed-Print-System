@@ -75,8 +75,9 @@ def seed_demo():
         session.flush()
 
         print("[DEMO SEED] Creating Shop: Campus Xerox & Print Hub...")
+        demo_shop_id = uuid.UUID("b52a6ecb-5dbc-4e41-a8cb-88f05f68859a")
         shop = Shop(
-            id=uuid.uuid4(),
+            id=demo_shop_id,
             tenant_id=tenant.id,
             name="Campus Xerox & Print Hub",
             slug="campus-xerox",
@@ -85,6 +86,7 @@ def seed_demo():
         )
         session.add(shop)
         session.flush()
+
 
         print("[DEMO SEED] Creating Operator and Admin Users...")
         admin_pass = hash_password("admin123")
@@ -126,9 +128,10 @@ def seed_demo():
         session.flush()
 
         print("[DEMO SEED] Creating Edge Agents...")
+        demo_agent_id = uuid.UUID("467674bf-343b-4484-adde-efc923c87db3")
         agent1_token = "agent-dev-key-12345"
         agent1 = Agent(
-            id=uuid.uuid4(),
+            id=demo_agent_id,
             shop_id=shop.id,
             name="campus-agent-01",
             agent_token_hash=AgentService.hash_agent_token(agent1_token),
@@ -138,6 +141,7 @@ def seed_demo():
             status=AgentStatus.ONLINE,
             last_heartbeat_at=now - timedelta(seconds=8),
         )
+
         agent2 = Agent(
             id=uuid.uuid4(),
             shop_id=shop.id,

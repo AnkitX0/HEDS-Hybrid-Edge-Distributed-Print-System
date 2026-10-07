@@ -80,7 +80,7 @@ async def test_complete_e2e_student_to_pickup_workflow():
 
         # 4. Edge Agent polls for jobs: POST /api/v1/agents/jobs/poll
         async with AsyncSessionLocal() as session:
-            agent = (await session.execute(select(Agent).where(Agent.name == "Xerox-Counter-Linux-01"))).scalar_one()
+            agent = (await session.execute(select(Agent).where(Agent.name == "campus-agent-01"))).scalar_one()
             agent_id = str(agent.id)
 
         agent_headers = {

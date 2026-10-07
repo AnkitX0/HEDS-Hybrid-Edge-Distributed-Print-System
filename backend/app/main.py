@@ -11,6 +11,7 @@ from app.core.logging import logger
 from app.core.exceptions import HEDSException
 from app.core.database import AsyncSessionLocal
 from app.modules.queue.service import queue_service
+from app.workers.cleanup import cleanup_worker
 
 # Routers
 from app.api.v1.auth import router as auth_router
@@ -40,14 +41,17 @@ async def background_reconciliation_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting HEDS Backend Service...")
-    worker_task = asyncio.create_task(background_reconciliation_worker())
+    reconcile_task = asyncio.create_task(background_reconciliation_worker())
+    cleanup_task = asyncio.create_task(cleanup_worker.run_periodic_cleanup_loop(interval_seconds=3600))
     yield
-    worker_task.cancel()
+    reconcile_task.cancel()
+    cleanup_task.cancel()
     try:
-        await worker_task
+        await asyncio.gather(reconcile_task, cleanup_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
     logger.info("HEDS Backend Service shutdown complete.")
+
 
 
 app = FastAPI(

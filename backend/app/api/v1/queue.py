@@ -10,7 +10,7 @@ from app.modules.queue.models import PrintJob, JobStatus
 from app.modules.orders.models import Order, OrderState
 from app.modules.orders.state_machine import OrderStateMachine
 from app.modules.tenants.models import Shop
-from app.api.deps import require_shop_operator
+from app.api.deps import require_shop_operator, get_authorized_shop
 from app.api.v1.schemas import JobReconcileRequest
 
 router = APIRouter(tags=["Queue"])
@@ -18,11 +18,11 @@ router = APIRouter(tags=["Queue"])
 
 @router.get("/shop/queue")
 async def list_shop_queue(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Returns live active and recent jobs for the shop dashboard.
+    Returns live active and recent jobs for the shop dashboard, scoped to authorized shop.
     """
     stmt = (
         select(PrintJob)
@@ -32,6 +32,7 @@ async def list_shop_queue(
             selectinload(PrintJob.printer),
             selectinload(PrintJob.agent),
         )
+        .where(PrintJob.shop_id == shop.id)
         .order_by(PrintJob.queued_at.desc())
         .limit(50)
     )
@@ -202,15 +203,9 @@ async def reconcile_ambiguous_job(
 
 @router.post("/shop/queue/toggle-pause")
 async def toggle_queue_pause(
-    current_user=Depends(require_shop_operator),
+    shop: Shop = Depends(get_authorized_shop),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Shop).limit(1)
-    res = await db.execute(stmt)
-    shop = res.scalar_one_or_none()
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
-
     shop.is_queue_paused = not shop.is_queue_paused
     await db.commit()
     return {
@@ -218,3 +213,4 @@ async def toggle_queue_pause(
         "is_queue_paused": shop.is_queue_paused,
         "message": f"Queue {'paused' if shop.is_queue_paused else 'resumed'}",
     }
+

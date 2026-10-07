@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cups-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY agent/ /app/agent/
+RUN pip install --no-cache-dir -e /app/agent
+
+ENV PYTHONPATH=/app/agent
+ENV HEDS_CLOUD_URL=http://backend:8000
+ENV HEDS_PRINTER_ADAPTER=mock
+
+CMD ["python", "-m", "heds_agent.main"]

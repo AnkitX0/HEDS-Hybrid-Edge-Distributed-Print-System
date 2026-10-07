@@ -26,6 +26,7 @@ import { SettingsView } from "@/components/views/SettingsView";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { apiClient, ApiError } from "@/lib/api/client";
 
 export default function ShopDashboard() {
   const router = useRouter();
@@ -47,6 +48,8 @@ export default function ShopDashboard() {
 
   const [isRunningDemo, setIsRunningDemo] = useState(false);
 
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
+
   useEffect(() => {
     const token = localStorage.getItem("heds_token");
     if (!token) {
@@ -54,35 +57,76 @@ export default function ShopDashboard() {
     }
     const role = localStorage.getItem("heds_user_role");
     if (role) setUserRole(role);
+    const savedShop = localStorage.getItem("heds_active_shop_id");
+    if (savedShop) setSelectedShopId(savedShop);
   }, [router]);
 
   const getAuthHeaders = () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("heds_token") : "";
-    return {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     };
+    if (selectedShopId) {
+      headers["X-Shop-ID"] = selectedShopId;
+    }
+    return headers;
   };
 
-  // Queries
-  const { data: dashboardData, refetch: refetchDashboard } = useQuery({
-    queryKey: ["shop-dashboard"],
+  // 0. Operator Authorized Shops
+  const { data: operatorShops = [] } = useQuery({
+    queryKey: ["operator-shops"],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/dashboard", { headers: getAuthHeaders() });
-      if (res.status === 401) {
-        router.push("/login");
-        throw new Error("Unauthorized");
+      try {
+        return await apiClient.get<any[]>("/api/v1/operator/shops", { headers: getAuthHeaders() });
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 401) {
+          router.push("/login");
+        }
+        return [];
       }
-      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
+  useEffect(() => {
+    if (operatorShops.length > 0 && !selectedShopId) {
+      const saved = localStorage.getItem("heds_active_shop_id");
+      const matched = operatorShops.find((s: any) => s.id === saved);
+      const chosen = matched ? matched.id : operatorShops[0].id;
+      setSelectedShopId(chosen);
+      localStorage.setItem("heds_active_shop_id", chosen);
+    }
+  }, [operatorShops, selectedShopId]);
+
+  // Queries scoped to selectedShopId
+  const { data: dashboardData, refetch: refetchDashboard } = useQuery({
+    queryKey: ["shop-dashboard", selectedShopId],
+    queryFn: async () => {
+      try {
+        return await apiClient.get<any>("/api/v1/shop/dashboard", { headers: getAuthHeaders() });
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 401) {
+          router.push("/login");
+          throw new Error("Unauthorized");
+        }
+        throw err;
+      }
     },
     refetchInterval: 3000,
   });
 
   const { data: queueItems = [], refetch: refetchQueue } = useQuery({
-    queryKey: ["shop-queue"],
+    queryKey: ["shop-queue", selectedShopId],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/queue", { headers: getAuthHeaders() });
-      return res.json();
+      try {
+        return await apiClient.get<any[]>("/api/v1/shop/queue", { headers: getAuthHeaders() });
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 401) {
+          router.push("/login");
+        }
+        return [];
+      }
     },
     refetchInterval: 2500,
   });
@@ -92,11 +136,13 @@ export default function ShopDashboard() {
     refetch: refetchOrders,
     isLoading: isLoadingOrders,
   } = useQuery({
-    queryKey: ["shop-orders"],
+    queryKey: ["shop-orders", selectedShopId],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/orders", { headers: getAuthHeaders() });
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        return await apiClient.get<any[]>("/api/v1/shop/orders", { headers: getAuthHeaders() });
+      } catch {
+        return [];
+      }
     },
     enabled: activeTab === "orders",
   });
@@ -106,10 +152,13 @@ export default function ShopDashboard() {
     refetch: refetchPrinters,
     isLoading: isLoadingPrinters,
   } = useQuery({
-    queryKey: ["shop-printers"],
+    queryKey: ["shop-printers", selectedShopId],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/printers", { headers: getAuthHeaders() });
-      return res.json();
+      try {
+        return await apiClient.get<any[]>("/api/v1/shop/printers", { headers: getAuthHeaders() });
+      } catch {
+        return [];
+      }
     },
     enabled: activeTab === "printers" || activeTab === "overview",
     refetchInterval: 4000,
@@ -120,10 +169,13 @@ export default function ShopDashboard() {
     refetch: refetchAgents,
     isLoading: isLoadingAgents,
   } = useQuery({
-    queryKey: ["shop-agents"],
+    queryKey: ["shop-agents", selectedShopId],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/agents", { headers: getAuthHeaders() });
-      return res.json();
+      try {
+        return await apiClient.get<any[]>("/api/v1/shop/agents", { headers: getAuthHeaders() });
+      } catch {
+        return [];
+      }
     },
     enabled: activeTab === "agents" || activeTab === "overview",
     refetchInterval: 5000,
@@ -134,10 +186,13 @@ export default function ShopDashboard() {
     refetch: refetchAudit,
     isLoading: isLoadingAudit,
   } = useQuery({
-    queryKey: ["shop-audit-logs"],
+    queryKey: ["shop-audit-logs", selectedShopId],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/audit-logs", { headers: getAuthHeaders() });
-      return res.json();
+      try {
+        return await apiClient.get<any[]>("/api/v1/shop/audit-logs", { headers: getAuthHeaders() });
+      } catch {
+        return [];
+      }
     },
     enabled: activeTab === "audit" || activeTab === "overview",
     refetchInterval: 4000,
@@ -148,19 +203,22 @@ export default function ShopDashboard() {
     refetch: refetchPricing,
     isLoading: isLoadingPricing,
   } = useQuery({
-    queryKey: ["shop-pricing"],
+    queryKey: ["shop-pricing", selectedShopId],
     queryFn: async () => {
-      const res = await fetch("/api/v1/shop/pricing", { headers: getAuthHeaders() });
-      return res.json();
+      try {
+        return await apiClient.get<any[]>("/api/v1/shop/pricing", { headers: getAuthHeaders() });
+      } catch {
+        return [];
+      }
     },
     enabled: activeTab === "pricing",
   });
 
+
   // Action mutations
   const handleTogglePause = async () => {
     try {
-      await fetch("/api/v1/shop/queue/toggle-pause", {
-        method: "POST",
+      await apiClient.post("/api/v1/shop/queue/toggle-pause", {}, {
         headers: getAuthHeaders(),
       });
       refetchDashboard();
@@ -171,46 +229,36 @@ export default function ShopDashboard() {
 
   const handleRetryJob = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/v1/jobs/${jobId}/retry`, {
-        method: "POST",
+      await apiClient.post(`/api/v1/jobs/${jobId}/retry`, {}, {
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error("Retry failed");
       setActionMessage("Job re-enqueued for print dispatch.");
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message);
+      setActionMessage(err.message || "Retry failed");
     }
   };
 
   const handleCancelJob = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/v1/jobs/${jobId}/cancel`, {
-        method: "POST",
+      await apiClient.post(`/api/v1/jobs/${jobId}/cancel`, {}, {
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error("Cancel failed");
       setActionMessage("Job cancelled.");
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message);
+      setActionMessage(err.message || "Cancel failed");
     }
   };
 
   const handleRunDemoPrint = async () => {
     setIsRunningDemo(true);
     try {
-      const res = await fetch("/api/v1/dev/demo-print", {
-        method: "POST",
+      const data = await apiClient.post<any>("/api/v1/dev/demo-print", {}, {
         headers: getAuthHeaders(),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.detail || "Failed to trigger demo print");
-      }
-      const data = await res.json();
       setActionMessage(`⚡ Demo print triggered: Order ${data.order_number} enqueued (${data.amount_formatted}). Live execution running!`);
       refetchQueue();
       refetchDashboard();
@@ -226,25 +274,19 @@ export default function ShopDashboard() {
     setPickupError(null);
     setIsConfirmingPickup(true);
     try {
-      const res = await fetch("/api/v1/pickups/confirm", {
-        method: "POST",
+      await apiClient.post("/api/v1/pickups/confirm", {
+        order_id: pickupModalOrder.order_id,
+        otp: pickupOtpInput.trim(),
+      }, {
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          order_id: pickupModalOrder.order_id,
-          otp: pickupOtpInput.trim(),
-        }),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.detail || "Invalid OTP code");
-      }
       setPickupModalOrder(null);
       setPickupOtpInput("");
       setActionMessage(`Order ${pickupModalOrder.order_number} confirmed and completed.`);
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setPickupError(err.message || "Failed to confirm pickup");
+      setPickupError(err.message || "Failed to confirm pickup. Please verify the OTP code.");
     } finally {
       setIsConfirmingPickup(false);
     }
@@ -253,18 +295,15 @@ export default function ShopDashboard() {
   const handleReconcileDecision = async (decision: string) => {
     if (!reconcileModalJob) return;
     try {
-      const res = await fetch(`/api/v1/jobs/${reconcileModalJob.job_id}/reconcile`, {
-        method: "POST",
+      await apiClient.post(`/api/v1/jobs/${reconcileModalJob.job_id}/reconcile`, { decision }, {
         headers: getAuthHeaders(),
-        body: JSON.stringify({ decision }),
       });
-      if (!res.ok) throw new Error("Reconciliation failed");
       setReconcileModalJob(null);
       setActionMessage(`Job resolved with decision: ${decision}`);
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message);
+      setActionMessage(err.message || "Reconciliation failed");
     }
   };
 
@@ -277,15 +316,9 @@ export default function ShopDashboard() {
       minimum_order_cents: number;
     }
   ) => {
-    const res = await fetch(`/api/v1/shop/pricing/${ruleId}`, {
-      method: "PUT",
+    await apiClient.put(`/api/v1/shop/pricing/${ruleId}`, payload, {
       headers: getAuthHeaders(),
-      body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      const d = await res.json();
-      throw new Error(d.detail || "Failed to update pricing rule");
-    }
   };
 
   const handleLogout = () => {
@@ -319,7 +352,14 @@ export default function ShopDashboard() {
         operatorName={operatorEmail}
         onLogout={handleLogout}
         waitingQueueCount={stats.waiting_jobs}
+        availableShops={operatorShops}
+        selectedShopId={selectedShopId}
+        onSelectShop={(id) => {
+          setSelectedShopId(id);
+          localStorage.setItem("heds_active_shop_id", id);
+        }}
       />
+
 
       {/* Main Operational Canvas */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">

@@ -1,27 +1,22 @@
 import React from "react";
-import { FolderOpen } from "lucide-react";
+import { Inbox } from "lucide-react";
 
 interface EmptyStateProps {
   title: string;
-  description?: string;
-  icon?: React.ReactNode;
+  description: string;
   action?: React.ReactNode;
+  icon?: React.ReactNode;
 }
 
-export function EmptyState({
-  title,
-  description,
-  icon,
-  action,
-}: EmptyStateProps) {
+export function EmptyState({ title, description, action, icon }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-slate-800 rounded-lg bg-slate-900/40 my-2">
-      <div className="w-9 h-9 rounded-md bg-slate-800/80 text-slate-400 flex items-center justify-center mb-3">
-        {icon || <FolderOpen className="w-5 h-5" />}
+    <div className="flex flex-col items-center justify-center p-8 text-center max-w-sm mx-auto space-y-2">
+      <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mb-1">
+        {icon || <Inbox className="w-5 h-5 text-slate-400" />}
       </div>
-      <h3 className="text-xs font-semibold text-slate-200">{title}</h3>
-      {description && <p className="text-[11px] text-slate-400 mt-1 max-w-sm">{description}</p>}
-      {action && <div className="mt-3">{action}</div>}
+      <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+      <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
+      {action && <div className="pt-2">{action}</div>}
     </div>
   );
 }

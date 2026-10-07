@@ -20,10 +20,23 @@ async def confirm_order_pickup(
     Shop Operator verifies student OTP code:
     Validates salted hash, sets order state to COMPLETED, records audit event.
     """
-    try:
-        order_uuid = uuid.UUID(payload.order_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid order_id UUID")
+    order_uuid = None
+    if payload.order_id:
+        try:
+            order_uuid = uuid.UUID(payload.order_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid order_id UUID")
+    elif payload.order_number:
+        from sqlalchemy import select
+        from app.modules.orders.models import Order
+        norm_number = payload.order_number.strip().upper()
+        res = await db.execute(select(Order).where(Order.order_number == norm_number))
+        found_order = res.scalar_one_or_none()
+        if not found_order:
+            raise HTTPException(status_code=404, detail=f"Order '{payload.order_number}' not found")
+        order_uuid = found_order.id
+    else:
+        raise HTTPException(status_code=400, detail="Either order_id or order_number must be provided")
 
     try:
         order = await pickup_service.verify_and_complete_pickup(

@@ -20,34 +20,34 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  let variantStyles = "bg-blue-600 hover:bg-blue-500 text-white border-transparent";
+  let variantStyles = "bg-blue-600 hover:bg-blue-700 text-white border-transparent shadow-xs";
 
   switch (variant) {
     case "primary":
-      variantStyles = "bg-blue-600 hover:bg-blue-500 text-white shadow-sm border border-blue-500/30";
+      variantStyles = "bg-blue-600 hover:bg-blue-700 text-white shadow-xs border border-blue-600";
       break;
     case "secondary":
-      variantStyles = "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-sm";
+      variantStyles = "bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-xs";
       break;
     case "outline":
-      variantStyles = "bg-transparent hover:bg-slate-800 text-slate-300 border border-slate-700";
+      variantStyles = "bg-transparent hover:bg-slate-100 text-slate-700 border border-slate-300";
       break;
     case "danger":
-      variantStyles = "bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800/80";
+      variantStyles = "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200";
       break;
     case "ghost":
-      variantStyles = "bg-transparent hover:bg-slate-800/60 text-slate-400 hover:text-slate-200 border-transparent";
+      variantStyles = "bg-transparent hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-transparent";
       break;
   }
 
-  let sizeStyles = "px-3 py-1.5 text-xs font-medium rounded-md";
-  if (size === "sm") sizeStyles = "px-2 py-1 text-[11px] font-medium rounded";
-  if (size === "lg") sizeStyles = "px-4 py-2 text-sm font-semibold rounded-md";
+  let sizeStyles = "px-3 py-1.5 text-xs font-medium rounded-lg";
+  if (size === "sm") sizeStyles = "px-2.5 py-1 text-[11px] font-medium rounded-md";
+  if (size === "lg") sizeStyles = "px-4 py-2 text-sm font-semibold rounded-lg";
 
   return (
     <button
       disabled={disabled || isLoading}
-      className={`inline-flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed ${variantStyles} ${sizeStyles} ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${variantStyles} ${sizeStyles} ${className}`}
       {...props}
     >
       {isLoading ? (

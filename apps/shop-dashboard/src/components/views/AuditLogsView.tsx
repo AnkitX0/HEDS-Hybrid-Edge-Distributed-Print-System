@@ -39,109 +39,114 @@ export function AuditLogsView({ logs, isLoading, onRefresh }: AuditLogsViewProps
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">Audit Trail & Event Log</h2>
-          <p className="text-xs text-slate-400">
-            Immutable audit records capturing all state machine transitions, dispatches, and operator interventions.
+          <h1 className="text-base font-bold text-slate-900">Audit Trail</h1>
+          <p className="text-xs text-slate-500">
+            Immutable audit records capturing all order state machine transitions, print dispatches, and operator interventions.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <div className="w-56 sm:w-64">
+            <Input
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+              placeholder="Filter by action, actor..."
+              icon={<Search className="w-3.5 h-3.5" />}
+            />
+          </div>
           <Button
             variant="secondary"
             size="sm"
             onClick={onRefresh}
             disabled={isLoading}
-            className="flex items-center gap-1.5"
+            icon={<RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            <span>Refresh Trail</span>
+            Refresh
           </Button>
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-md flex items-center justify-between gap-3">
-        <div className="w-full sm:w-72">
-          <Input
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter by action, actor, resource..."
-            className="h-8 text-xs bg-slate-950"
-          />
-        </div>
-        <span className="text-[11px] text-slate-400 shrink-0">
-          Showing {filteredLogs.length} events
-        </span>
-      </div>
-
-      {/* Table */}
-      <div className="border border-slate-800 rounded-md bg-slate-900 overflow-hidden">
+      {/* Logs Table */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
         {isLoading && logs.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-400 space-y-2">
-            <div className="w-5 h-5 border-2 border-slate-600 border-t-blue-500 rounded-full animate-spin mx-auto" />
-            <p>Loading audit ledger...</p>
+          <div className="p-12 text-center text-xs text-slate-500 space-y-2">
+            <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin mx-auto" />
+            <p>Loading audit trail...</p>
           </div>
         ) : filteredLogs.length === 0 ? (
-          <EmptyState
-            title="No audit entries"
-            description={
-              filterQuery
-                ? `No events match "${filterQuery}".`
-                : "No system events or operator actions have been recorded yet."
-            }
-          />
+          <div className="p-8">
+            <EmptyState
+              title={filterQuery ? "No matching audit events" : "No audit records found"}
+              description={
+                filterQuery
+                  ? `No events match "${filterQuery}".`
+                  : "Audit records will appear here as state transitions and operations occur."
+              }
+            />
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 text-[11px] font-medium uppercase tracking-wider">
-                  <th className="px-3.5 py-2.5">Timestamp</th>
-                  <th className="px-3.5 py-2.5">Action</th>
-                  <th className="px-3.5 py-2.5">Actor</th>
-                  <th className="px-3.5 py-2.5">Resource</th>
-                  <th className="px-3.5 py-2.5">Details</th>
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3">Timestamp</th>
+                  <th className="px-4 py-3">Actor</th>
+                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3">Target</th>
+                  <th className="px-4 py-3">Context / Metadata</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/80">
+              <tbody className="divide-y divide-slate-100 font-mono">
                 {filteredLogs.map((log) => {
                   return (
-                    <tr
-                      key={log.id}
-                      className="hover:bg-slate-800/40 transition-colors font-normal"
-                    >
-                      <td className="px-3.5 py-2 whitespace-nowrap text-slate-400 font-mono text-[11px]">
-                        {new Date(log.created_at).toLocaleString()}
+                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 text-[11px]">
+                        {log.created_at
+                          ? new Date(log.created_at).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })
+                          : "—"}
                       </td>
 
-                      <td className="px-3.5 py-2 whitespace-nowrap">
-                        <span className="font-semibold text-slate-200">
-                          {log.action}
-                        </span>
-                      </td>
-
-                      <td className="px-3.5 py-2 whitespace-nowrap">
-                        <Badge variant="neutral">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Badge
+                          variant={
+                            log.actor_type === "SYSTEM"
+                              ? "neutral"
+                              : log.actor_type === "OPERATOR"
+                              ? "info"
+                              : "default"
+                          }
+                        >
                           {log.actor_type}
                         </Badge>
                       </td>
 
-                      <td className="px-3.5 py-2 whitespace-nowrap text-slate-300 font-mono text-[11px]">
-                        {log.resource_type}
+                      <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">
+                        {log.action}
+                      </td>
+
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        <span>{log.resource_type}</span>
                         {log.resource_id && (
-                          <span className="text-slate-500 ml-1">
-                            ({log.resource_id.slice(0, 8)})
+                          <span className="text-slate-400 text-[11px] block">
+                            {log.resource_id.slice(0, 8)}
                           </span>
                         )}
                       </td>
 
-                      <td className="px-3.5 py-2 text-slate-400 text-[11px] max-w-xs truncate font-mono">
-                        {log.metadata && Object.keys(log.metadata).length > 0
-                          ? JSON.stringify(log.metadata)
-                          : "—"}
+                      <td className="px-4 py-3 text-slate-600 font-sans max-w-sm truncate text-xs">
+                        {log.metadata?.reason ||
+                          log.metadata?.transition ||
+                          JSON.stringify(log.metadata || {})}
                       </td>
                     </tr>
                   );

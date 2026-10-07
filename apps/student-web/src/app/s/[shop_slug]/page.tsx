@@ -13,6 +13,10 @@ import {
   Check,
   X,
   RotateCw,
+  Printer,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { apiClient, ApiError } from "@/lib/api/client";
 
@@ -33,28 +37,48 @@ interface ShopInfo {
   };
 }
 
-export default function ShopOrderPage() {
+export default function StudentShopPage() {
   const params = useParams();
   const router = useRouter();
   const shopSlug = params.shop_slug as string;
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [pageCount, setPageCount] = useState<number>(3);
   const [copies, setCopies] = useState<number>(1);
   const [colorMode, setColorMode] = useState<"BW" | "COLOR">("BW");
   const [duplex, setDuplex] = useState<boolean>(false);
   const [paperSize, setPaperSize] = useState<string>("A4");
-  const [pageRange, setPageRange] = useState<string>("all");
-  const [pageCount, setPageCount] = useState<number>(3);
+  const [pageRangeMode, setPageRangeMode] = useState<"all" | "custom">("all");
+  const [customPageRange, setCustomPageRange] = useState<string>("");
+  const [orientation, setOrientation] = useState<"PORTRAIT" | "LANDSCAPE">("PORTRAIT");
+  const [isDragging, setIsDragging] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showPriceBreakdown, setShowPriceBreakdown] = useState<boolean>(false);
 
-  const handleLoadSampleFile = async () => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch shop metadata and queue state
+  const {
+    data: shop,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<ShopInfo>({
+    queryKey: ["shop", shopSlug],
+    queryFn: async () => {
+      return apiClient.get<ShopInfo>(`/api/v1/shops/${shopSlug}`);
+    },
+    refetchInterval: 5000,
+  });
+
+  const loadSampleDocument = async () => {
     try {
       const res = await fetch("/sample-print.pdf");
       const blob = await res.blob();
-      const sampleFile = new File([blob], "sample-print.pdf", { type: "application/pdf" });
+      const sampleFile = new File([blob], "sample-assignment.pdf", {
+        type: "application/pdf",
+      });
       setFile(sampleFile);
       setPageCount(3);
       setErrorMessage(null);
@@ -62,15 +86,6 @@ export default function ShopOrderPage() {
       console.error("Failed to load sample document", e);
     }
   };
-
-  // Fetch shop metadata and queue state
-  const { data: shop, isLoading, error, refetch } = useQuery<ShopInfo>({
-    queryKey: ["shop", shopSlug],
-    queryFn: async () => {
-      return apiClient.get<ShopInfo>(`/api/v1/shops/${shopSlug}`);
-    },
-    refetchInterval: 5000,
-  });
 
   const validateAndSetFile = (selectedFile: File) => {
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
@@ -83,12 +98,13 @@ export default function ShopOrderPage() {
 
     const maxSizeMb = 50;
     if (selectedFile.size > maxSizeMb * 1024 * 1024) {
-      setErrorMessage(`Selected file is larger than the ${maxSizeMb} MB limit.`);
+      setErrorMessage(`File exceeds the maximum ${maxSizeMb} MB limit.`);
       return;
     }
 
     setErrorMessage(null);
     setFile(selectedFile);
+    // Default estimated page count until backend server parses authoritative PDF
     setPageCount(3);
   };
 
@@ -115,7 +131,7 @@ export default function ShopOrderPage() {
     }
   };
 
-  // Preview estimate calculation
+  // Preview estimate calculation in Rupees
   const calculateEstimatedTotal = () => {
     if (!shop || !shop.pricing) return 0;
     const baseRate =
@@ -124,14 +140,19 @@ export default function ShopOrderPage() {
         : shop.pricing.bw_per_page_cents;
     const effectivePages = file ? pageCount : 3;
     const rawTotal = baseRate * effectivePages * copies;
-    const duplexDiscount = duplex ? shop.pricing.duplex_discount_cents * copies : 0;
-    const subtotal = Math.max(shop.pricing.minimum_order_cents, rawTotal - duplexDiscount);
+    const duplexDiscount = duplex
+      ? (shop.pricing.duplex_discount_cents || 0) * copies
+      : 0;
+    const subtotal = Math.max(
+      shop.pricing.minimum_order_cents || 0,
+      rawTotal - duplexDiscount
+    );
     return subtotal / 100;
   };
 
   const handleSubmitOrder = async () => {
     if (!file) {
-      setErrorMessage("Please select a document to print.");
+      setErrorMessage("Please select or upload a document first.");
       return;
     }
 
@@ -145,21 +166,32 @@ export default function ShopOrderPage() {
       formData.append("color_mode", colorMode);
       formData.append("duplex", duplex.toString());
       formData.append("paper_size", paperSize);
-      formData.append("page_range", pageRange);
+      formData.append(
+        "page_range",
+        pageRangeMode === "custom" && customPageRange.trim()
+          ? customPageRange.trim()
+          : "all"
+      );
 
-      const orderData = await apiClient.upload<any>(`/api/v1/shops/${shopSlug}/orders`, formData);
+      const orderData = await apiClient.upload<any>(
+        `/api/v1/shops/${shopSlug}/orders`,
+        formData
+      );
 
-      // Complete sandbox payment
-      await apiClient.post<any>(`/api/v1/orders/${orderData.guest_access_token}/payment`, {
-        simulate_status: "success",
-      });
+      // Complete simulated payment
+      await apiClient.post<any>(
+        `/api/v1/orders/${orderData.guest_access_token}/payment`,
+        { simulate_status: "success" }
+      );
 
       // Route directly to real-time order tracking
       router.push(`/orders/${orderData.guest_access_token}`);
     } catch (err: any) {
       if (err instanceof ApiError) {
         if (err.code === "NETWORK_ERROR" || err.status === 503) {
-          setErrorMessage("Cannot connect to print server. Please retry in a few moments.");
+          setErrorMessage(
+            "Cannot connect to print server. Please retry in a few moments."
+          );
         } else {
           setErrorMessage(err.message || "Failed to process order.");
         }
@@ -172,9 +204,9 @@ export default function ShopOrderPage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] text-slate-500 space-y-2">
-        <div className="w-5 h-5 border-2 border-slate-600 border-t-blue-600 rounded-full animate-spin" />
-        <p className="text-xs">Connecting to shop queue...</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500 space-y-3">
+        <div className="w-8 h-8 border-3 border-slate-300 border-t-indigo-600 rounded-full animate-spin" />
+        <p className="text-sm font-medium">Connecting to Xerox shop...</p>
       </div>
     );
   }
@@ -188,34 +220,34 @@ export default function ShopOrderPage() {
       apiErr?.status === 503;
 
     return (
-      <div className="p-6 bg-white rounded-md border border-slate-200 text-center space-y-3">
+      <div className="p-6 bg-white rounded-xl border border-slate-200 text-center space-y-4 shadow-sm my-6">
         <div
-          className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto ${
+          className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
             isNotFound ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"
           }`}
         >
-          <AlertCircle className="w-5 h-5" />
+          <AlertCircle className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">
+          <h2 className="text-base font-bold text-slate-900">
             {isNotFound
               ? "Shop Not Found"
               : isConnError
-              ? "Cannot Connect to Print Server"
+              ? "Cannot Connect to Print Cluster"
               : "Shop Unavailable"}
           </h2>
-          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto">
+          <p className="text-xs text-slate-600 mt-1.5 max-w-xs mx-auto leading-relaxed">
             {isNotFound
-              ? `We could not find a registered print shop matching "${shopSlug}". Please verify the QR code on the counter.`
+              ? `We could not find a registered print shop matching "${shopSlug}". Please re-scan the QR code at the shop counter.`
               : isConnError
-              ? "Unable to reach the HEDS backend service. If running locally or via Docker, please verify the backend container is healthy."
-              : "This shop is temporarily unable to accept new print jobs. Please scan the counter QR again or check with the operator."}
+              ? "Unable to reach the HEDS backend service. If running with Docker, please verify the backend container is healthy."
+              : "This shop is temporarily unable to accept new print jobs. Please check with the operator."}
           </p>
         </div>
         <div className="pt-2">
           <button
             onClick={() => refetch()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
           >
             <RotateCw className="w-3.5 h-3.5" />
             Retry Connection
@@ -225,333 +257,391 @@ export default function ShopOrderPage() {
     );
   }
 
-  const bwRateRupees = ((shop.pricing?.bw_per_page_cents || 200) / 100).toFixed(2);
-  const colorRateRupees = ((shop.pricing?.color_per_page_cents || 1000) / 100).toFixed(2);
-  const duplexDiscountRupees = ((shop.pricing?.duplex_discount_cents || 50) / 100).toFixed(2);
+  const bwRate = ((shop.pricing?.bw_per_page_cents || 200) / 100).toFixed(2);
+  const colorRate = ((shop.pricing?.color_per_page_cents || 1000) / 100).toFixed(2);
+  const estimatedTotal = calculateEstimatedTotal();
 
   return (
-    <div className="space-y-4">
-      {/* 1. Shop Header Card (Requirements 16 & 17) */}
-      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="font-bold text-[10px] tracking-wider bg-blue-600 text-white px-1.5 py-0.5 rounded font-mono">
-                HEDS
-              </span>
-              <h1 className="text-sm font-bold text-slate-900 tracking-tight">{shop.name}</h1>
+    <div className="space-y-4 pb-8">
+      {/* 1. Shop Identity Header Card */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm flex-shrink-0">
+              <Printer className="w-5 h-5" />
             </div>
-            <p className="text-xs text-slate-500">
-              Cloud queue orchestration &bull; Contactless pickup verification
-            </p>
+            <div>
+              <h1 className="text-base font-bold text-slate-900 leading-tight">
+                {shop.name}
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Fast Contactless Campus Printing
+              </p>
+            </div>
           </div>
           <span
-            className={`px-2 py-0.5 text-[11px] font-semibold rounded border ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
               shop.is_queue_paused
                 ? "bg-amber-50 text-amber-700 border-amber-200"
                 : "bg-emerald-50 text-emerald-700 border-emerald-200"
             }`}
           >
-            {shop.is_queue_paused ? "Queue Paused" : "OPEN"}
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                shop.is_queue_paused ? "bg-amber-500" : "bg-emerald-500 animate-pulse"
+              }`}
+            />
+            {shop.is_queue_paused ? "Queue Paused" : "Counter Open"}
           </span>
         </div>
 
-        {/* Operational Queue Summary */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-xs text-center font-mono">
-          <div className="p-2 rounded bg-slate-50 border border-slate-100">
-            <span className="text-[10px] text-slate-400 block leading-tight">Hardware</span>
-            <span className="font-semibold text-slate-800 text-[11px]">2 online</span>
-          </div>
-
-          <div className="p-2 rounded bg-slate-50 border border-slate-100">
-            <span className="text-[10px] text-slate-400 block leading-tight">Queue</span>
-            <span className="font-semibold text-slate-800 text-[11px]">
-              {shop.queue_length || 3} processing
+        {/* Live Shop Stats Pill */}
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-mono">
+          <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <span className="text-[10px] text-slate-400 block uppercase tracking-wider">
+              B&W
             </span>
+            <span className="font-bold text-slate-800 text-xs">₹{bwRate}</span>
           </div>
-
-          <div className="p-2 rounded bg-slate-50 border border-slate-100">
-            <span className="text-[10px] text-slate-400 block leading-tight">Est. Wait</span>
-            <span className="font-semibold text-slate-800 text-[11px]">
-              ~{shop.estimated_wait_minutes || 6} min
+          <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <span className="text-[10px] text-slate-400 block uppercase tracking-wider">
+              Color
+            </span>
+            <span className="font-bold text-indigo-600 text-xs">₹{colorRate}</span>
+          </div>
+          <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <span className="text-[10px] text-slate-400 block uppercase tracking-wider">
+              Wait
+            </span>
+            <span className="font-bold text-slate-800 text-xs">
+              ~{shop.estimated_wait_minutes || 2}m
             </span>
           </div>
         </div>
-
-        <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-100 text-center">
-          No account required. Your order is tracked using a secure guest link.
-        </p>
       </div>
 
-      {errorMessage && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
-          <span>{errorMessage}</span>
-        </div>
-      )}
-
-      {/* 2. Document Upload Area (Requirements 18 & 26) */}
-      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-2.5">
+      {/* 2. Upload Experience Card */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-900 block">
-            Document Upload
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <UploadCloud className="w-4 h-4 text-indigo-600" />
+            1. Document
           </span>
-          <button
-            type="button"
-            onClick={handleLoadSampleFile}
-            className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 hover:underline cursor-pointer"
-          >
-            <span>📄</span>
-            <span>Use Demo PDF (3 pages)</span>
-          </button>
+          <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+            No Account Needed
+          </span>
         </div>
 
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`border border-dashed rounded-md p-5 text-center cursor-pointer transition-colors ${
-            isDragging
-              ? "border-blue-500 bg-blue-50/50"
-              : file
-              ? "border-slate-300 bg-slate-50/70"
-              : "border-slate-300 hover:border-slate-400 bg-slate-50/30"
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.png,.jpg,.jpeg"
-            onChange={handleFileChange}
-            className="hidden"
-            id="student-file-input"
-          />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg"
+          className="hidden"
+          onChange={handleFileChange}
+        />
 
-          {file ? (
-            <div className="flex items-center justify-between text-left">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="p-2 bg-slate-200 rounded text-slate-700 shrink-0">
-                  <FileText className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-900 truncate">
-                    {file.name}
-                  </p>
-                  <p className="text-[11px] text-slate-500 font-mono">
-                    {(file.size / 1024).toFixed(1)} KB &bull; {file.type || "document"}
-                  </p>
-                </div>
-              </div>
+        {!file ? (
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`cursor-pointer border-2 border-dashed rounded-xl p-6 text-center space-y-2 transition-all duration-200 ${
+              isDragging
+                ? "border-indigo-600 bg-indigo-50/50 scale-[0.99]"
+                : "border-slate-200 hover:border-indigo-400 hover:bg-slate-50/60"
+            }`}
+          >
+            <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto shadow-sm">
+              <UploadCloud className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">
+                Tap to upload your file
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                PDF, JPG or PNG (up to 50MB)
+              </p>
+            </div>
+            <div className="pt-2">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setFile(null);
+                  loadSampleDocument();
                 }}
-                className="text-slate-400 hover:text-slate-600 p-1"
-                aria-label="Remove document"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
               >
-                <X className="w-4 h-4" />
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                Use Sample PDF (3 pages)
               </button>
             </div>
-          ) : (
-            <div className="space-y-1">
-              <UploadCloud className="w-6 h-6 text-slate-400 mx-auto" />
-              <p className="text-xs font-medium text-slate-700">
-                Tap to upload or drag file here
-              </p>
-              <p className="text-[11px] text-slate-400">
-                Supported formats: PDF, PNG, JPG (up to 50 MB)
-              </p>
+          </div>
+        ) : (
+          <div className="p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/40 flex items-center justify-between gap-3 animate-float">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-900 truncate">
+                  {file.name}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {pageCount} {pageCount === 1 ? "page" : "pages"} &bull;{" "}
+                  {(file.size / 1024).toFixed(0)} KB
+                </p>
+              </div>
             </div>
-          )}
-        </div>
+            <button
+              onClick={() => {
+                setFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+              className="px-2.5 py-1 text-[11px] font-semibold text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-md hover:bg-red-50 transition-colors"
+            >
+              Change
+            </button>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-xs text-red-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">{errorMessage}</span>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-red-400 hover:text-red-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 3. Print Configuration (Directive 13: Segmented Controls) */}
-      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3.5">
-        <span className="text-xs font-semibold text-slate-900 block">
-          Print Configuration
+      {/* 3. Print Configuration Section */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm space-y-4">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+          <Layers className="w-4 h-4 text-indigo-600" />
+          2. Print Settings
         </span>
 
-        {/* Color Mode Segmented Control */}
+        {/* Color Mode Toggle */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-medium text-slate-600 block">Color Mode</label>
-          <div className="grid grid-cols-2 p-0.5 bg-slate-100 rounded-md border border-slate-200">
+          <label className="text-xs font-medium text-slate-700">Color Mode</label>
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setColorMode("BW")}
-              className={`py-1.5 text-xs font-medium rounded transition-colors ${
+              className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                 colorMode === "BW"
-                  ? "bg-white text-slate-900 font-semibold shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
               }`}
             >
-              Black & White (₹{bwRateRupees}/pg)
+              <span>Black & White</span>
+              <span className="text-[10px] opacity-80">₹{bwRate}</span>
             </button>
             <button
               type="button"
               onClick={() => setColorMode("COLOR")}
-              className={`py-1.5 text-xs font-medium rounded transition-colors ${
+              className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                 colorMode === "COLOR"
-                  ? "bg-white text-slate-900 font-semibold shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
               }`}
             >
-              Full Color (₹{colorRateRupees}/pg)
+              <span>Full Color</span>
+              <span className="text-[10px] opacity-80">₹{colorRate}</span>
             </button>
           </div>
         </div>
 
-        {/* Sides Segmented Control */}
+        {/* Duplex / Sides Toggle */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-medium text-slate-600 block">Sides</label>
-          <div className="grid grid-cols-2 p-0.5 bg-slate-100 rounded-md border border-slate-200">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-700">Printing Sides</label>
+            <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded">
+              Eco Savings
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setDuplex(false)}
-              className={`py-1.5 text-xs font-medium rounded transition-colors ${
+              className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                 !duplex
-                  ? "bg-white text-slate-900 font-semibold shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
               }`}
             >
-              Single-sided
+              Single-Sided
             </button>
             <button
               type="button"
               onClick={() => setDuplex(true)}
-              className={`py-1.5 text-xs font-medium rounded transition-colors ${
+              className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                 duplex
-                  ? "bg-white text-slate-900 font-semibold shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
               }`}
             >
-              Double-sided (-₹{duplexDiscountRupees})
+              Both Sides (Duplex)
             </button>
           </div>
         </div>
 
-        {/* Copies Stepper & Paper Size */}
+        {/* Copies Stepper & Paper Size Grid */}
         <div className="grid grid-cols-2 gap-3 pt-1">
-          <div>
-            <label className="text-[11px] font-medium text-slate-600 block mb-1">Copies</label>
-            <div className="flex items-center border border-slate-200 rounded-md bg-white">
+          {/* Copies Stepper */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-700">Copies</label>
+            <div className="flex items-center border border-slate-200 rounded-xl bg-white overflow-hidden">
               <button
                 type="button"
                 onClick={() => setCopies(Math.max(1, copies - 1))}
-                className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-l"
-                aria-label="Decrease copies"
+                className="w-10 h-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 font-bold text-sm active:bg-slate-200"
               >
                 &minus;
               </button>
-              <span className="flex-1 text-center text-xs font-semibold text-slate-900">
+              <span className="flex-1 text-center font-bold text-xs text-slate-900">
                 {copies}
               </span>
               <button
                 type="button"
                 onClick={() => setCopies(copies + 1)}
-                className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-r"
-                aria-label="Increase copies"
+                className="w-10 h-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 font-bold text-sm active:bg-slate-200"
               >
-                &#43;
+                +
               </button>
             </div>
           </div>
 
-          <div>
-            <label className="text-[11px] font-medium text-slate-600 block mb-1">Paper Size</label>
+          {/* Paper Size */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-700">Paper Size</label>
             <select
               value={paperSize}
               onChange={(e) => setPaperSize(e.target.value)}
-              className="w-full text-xs font-medium py-1.5 px-2 rounded-md border border-slate-200 bg-white text-slate-900"
+              className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-600"
             >
               <option value="A4">A4 (Standard)</option>
-              <option value="A3">A3 (Large)</option>
-              <option value="LETTER">Letter</option>
+              <option value="Letter">Letter</option>
+              <option value="Legal">Legal</option>
             </select>
           </div>
         </div>
 
-        {/* Page Range Input */}
-        <div>
-          <label className="text-[11px] font-medium text-slate-600 block mb-1">Page Range</label>
-          <input
-            type="text"
-            value={pageRange}
-            onChange={(e) => setPageRange(e.target.value)}
-            placeholder="all or 1-5"
-            className="w-full text-xs font-medium py-1.5 px-2.5 rounded-md border border-slate-200 bg-white text-slate-900"
-          />
-          <span className="text-[10px] text-slate-400 block mt-0.5">
-            Leave as &quot;all&quot; or specify ranges (e.g. 1-3, 5)
-          </span>
+        {/* Page Range Selection */}
+        <div className="space-y-1.5 pt-1">
+          <label className="text-xs font-medium text-slate-700">Page Selection</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setPageRangeMode("all")}
+              className={`py-1.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                pageRangeMode === "all"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-200"
+              }`}
+            >
+              All Pages
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageRangeMode("custom")}
+              className={`py-1.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                pageRangeMode === "custom"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-200"
+              }`}
+            >
+              Custom Range
+            </button>
+          </div>
+          {pageRangeMode === "custom" && (
+            <input
+              type="text"
+              placeholder="e.g. 1-3, 5"
+              value={customPageRange}
+              onChange={(e) => setCustomPageRange(e.target.value)}
+              className="w-full h-9 px-3 mt-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-600"
+            />
+          )}
         </div>
       </div>
 
-      {/* 4. Authoritative Price Summary & Checkout (Directive 14 & 15) */}
-      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-        <span className="text-xs font-semibold text-slate-900 block">
-          Price Summary
-        </span>
-
-        <div className="space-y-1.5 text-xs text-slate-600 border-b border-slate-100 pb-2.5">
-          <div className="flex justify-between">
-            <span>Document</span>
-            <span className="font-medium text-slate-900 truncate max-w-[180px]">
-              {file ? file.name : "No file selected"}
+      {/* 4. Live Authoritative Price & Checkout Banner */}
+      <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-md space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-mono block">
+              Authoritative Total
             </span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-2xl font-black tracking-tight">
+                ₹{estimatedTotal.toFixed(2)}
+              </span>
+              <span className="text-xs text-slate-400">INR</span>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span>Color / Sides</span>
-            <span className="text-slate-900">
-              {colorMode === "BW" ? "Black & White" : "Color"} &bull;{" "}
-              {duplex ? "Double-sided" : "Single-sided"}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Copies</span>
-            <span className="text-slate-900">{copies} copy</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowPriceBreakdown(!showPriceBreakdown)}
+            className="flex items-center gap-1 text-[11px] text-indigo-300 hover:text-indigo-200 font-medium"
+          >
+            <span>Breakdown</span>
+            {showPriceBreakdown ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+          </button>
         </div>
 
-        <div className="flex items-baseline justify-between pt-1">
-          <span className="text-xs font-semibold text-slate-900">Estimated Total</span>
-          <span className="text-base font-bold text-slate-900">
-            ₹{calculateEstimatedTotal().toFixed(2)}
-          </span>
-        </div>
-
-        <p className="text-[10px] text-slate-400 leading-tight">
-          Exact price is authoritatively calculated on server upload based on verified PDF page count. Minimum order ₹{(shop.pricing.minimum_order_cents / 100).toFixed(2)}.
-        </p>
-
-        {/* Sandbox Payment Notice (Directive 15) */}
-        <div className="p-2 bg-slate-50 border border-slate-200 rounded text-[11px] text-slate-500">
-          <span className="font-semibold text-slate-700 block">Development Environment:</span>
-          Payment is routed through the HEDS Sandbox Gateway (mock transaction).
-        </div>
+        {showPriceBreakdown && (
+          <div className="pt-2 border-t border-slate-800 text-xs space-y-1 font-mono text-slate-300">
+            <div className="flex justify-between">
+              <span>Pages & Copies:</span>
+              <span>
+                {pageCount}p &times; {copies} {copies === 1 ? "copy" : "copies"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Mode Rate:</span>
+              <span>₹{colorMode === "COLOR" ? colorRate : bwRate} / page</span>
+            </div>
+            {duplex && (
+              <div className="flex justify-between text-emerald-400">
+                <span>Duplex Discount:</span>
+                <span>Active</span>
+              </div>
+            )}
+          </div>
+        )}
 
         <button
-          type="button"
-          disabled={!file || submitting || shop.is_queue_paused}
           onClick={handleSubmitOrder}
-          className={`w-full py-2.5 rounded-md font-semibold text-xs flex items-center justify-center gap-2 transition-colors ${
-            !file || submitting || shop.is_queue_paused
-              ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700 text-white"
+          disabled={submitting || !file || shop.is_queue_paused}
+          className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all ${
+            submitting || !file || shop.is_queue_paused
+              ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+              : "bg-indigo-500 hover:bg-indigo-400 text-white active:scale-[0.99]"
           }`}
         >
           {submitting ? (
-            <div className="flex items-center gap-2">
-              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span>Verifying & Placing Order...</span>
-            </div>
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>Placing in Queue...</span>
+            </>
+          ) : shop.is_queue_paused ? (
+            <span>Queue Temporarily Paused</span>
+          ) : !file ? (
+            <span>Upload Document to Continue</span>
           ) : (
             <>
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>Pay ₹{calculateEstimatedTotal().toFixed(2)} (Sandbox Demo Payment)</span>
+              <span>Pay ₹{estimatedTotal.toFixed(2)} & Print</span>
+              <Sparkles className="w-4 h-4" />
             </>
           )}
         </button>

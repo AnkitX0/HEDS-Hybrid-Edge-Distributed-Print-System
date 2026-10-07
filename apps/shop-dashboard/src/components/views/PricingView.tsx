@@ -92,13 +92,13 @@ export function PricingView({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">Pricing Rules Engine</h2>
-          <p className="text-xs text-slate-400">
-            Authoritative rate sheet used to calculate prices for student uploads before payment.
+          <h1 className="text-base font-bold text-slate-900">Pricing Rules</h1>
+          <p className="text-xs text-slate-500">
+            Authoritative rate sheets used to calculate prices for student uploads before payment.
           </p>
         </div>
 
@@ -107,43 +107,44 @@ export function PricingView({
           size="sm"
           onClick={onRefresh}
           disabled={isLoading}
-          className="flex items-center gap-1.5 self-start sm:self-auto"
+          icon={<RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          <span>Refresh Rates</span>
+          Refresh Rates
         </Button>
       </div>
 
       {feedbackMessage && (
-        <div className="p-3 bg-blue-950/60 border border-blue-800 rounded text-xs text-blue-200">
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
           {feedbackMessage}
         </div>
       )}
 
       {isLoading && rules.length === 0 ? (
-        <div className="p-12 text-center text-xs text-slate-400 space-y-2 border border-slate-800 rounded-md bg-slate-900">
-          <div className="w-5 h-5 border-2 border-slate-600 border-t-blue-500 rounded-full animate-spin mx-auto" />
-          <p>Loading shop pricing rules...</p>
+        <div className="p-12 text-center text-xs text-slate-500 space-y-2 border border-slate-200 rounded-xl bg-white">
+          <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin mx-auto" />
+          <p>Loading pricing rules...</p>
         </div>
       ) : rules.length === 0 ? (
-        <EmptyState
-          title="No pricing rules configured"
-          description="This shop currently has no active pricing rules. Seed defaults in settings."
-        />
+        <div className="bg-white border border-slate-200 rounded-xl p-8">
+          <EmptyState
+            title="No pricing rules configured"
+            description="This shop currently has no active pricing rules."
+          />
+        </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {rules.map((rule) => {
             const isEditing = editingRuleId === rule.id;
 
             return (
               <div
                 key={rule.id}
-                className="bg-slate-900 border border-slate-800 rounded-md p-4 space-y-3"
+                className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Tag className="w-4 h-4 text-slate-400" />
-                    <span className="font-semibold text-sm text-slate-200">{rule.name}</span>
+                    <span className="font-bold text-sm text-slate-900">{rule.name}</span>
                     <Badge variant={rule.is_active ? "success" : "neutral"}>
                       {rule.paper_size}
                     </Badge>
@@ -154,67 +155,56 @@ export function PricingView({
                       variant="secondary"
                       size="sm"
                       onClick={() => startEdit(rule)}
-                      className="flex items-center gap-1"
+                      icon={<Edit2 className="w-3 h-3" />}
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>Edit Rates</span>
+                      Edit Rates
                     </Button>
                   )}
                 </div>
 
                 {isEditing ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-800">
-                    <Input
-                      label="B/W Per Page (₹)"
-                      type="number"
-                      step="0.5"
-                      value={editForm.bw_rupees}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, bw_rupees: e.target.value })
-                      }
-                      className="bg-slate-950"
-                    />
+                  <div className="space-y-4 pt-2 border-t border-slate-100">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <Input
+                        label="B&W per page (₹)"
+                        type="number"
+                        step="0.5"
+                        value={editForm.bw_rupees}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, bw_rupees: e.target.value })
+                        }
+                      />
+                      <Input
+                        label="Color per page (₹)"
+                        type="number"
+                        step="0.5"
+                        value={editForm.color_rupees}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, color_rupees: e.target.value })
+                        }
+                      />
+                      <Input
+                        label="Duplex discount (₹)"
+                        type="number"
+                        step="0.25"
+                        value={editForm.duplex_discount_rupees}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, duplex_discount_rupees: e.target.value })
+                        }
+                      />
+                      <Input
+                        label="Minimum order (₹)"
+                        type="number"
+                        step="1"
+                        value={editForm.min_order_rupees}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, min_order_rupees: e.target.value })
+                        }
+                      />
+                    </div>
 
-                    <Input
-                      label="Color Per Page (₹)"
-                      type="number"
-                      step="1"
-                      value={editForm.color_rupees}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, color_rupees: e.target.value })
-                      }
-                      className="bg-slate-950"
-                    />
-
-                    <Input
-                      label="Duplex Discount (₹/sheet)"
-                      type="number"
-                      step="0.5"
-                      value={editForm.duplex_discount_rupees}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, duplex_discount_rupees: e.target.value })
-                      }
-                      className="bg-slate-950"
-                    />
-
-                    <Input
-                      label="Min Order (₹)"
-                      type="number"
-                      step="1"
-                      value={editForm.min_order_rupees}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, min_order_rupees: e.target.value })
-                      }
-                      className="bg-slate-950"
-                    />
-
-                    <div className="sm:col-span-4 flex justify-end gap-2 pt-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={cancelEdit}
-                        disabled={isSubmitting}
-                      >
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <Button variant="ghost" size="sm" onClick={cancelEdit}>
                         Cancel
                       </Button>
                       <Button
@@ -222,45 +212,36 @@ export function PricingView({
                         size="sm"
                         onClick={() => handleSave(rule.id)}
                         disabled={isSubmitting}
-                        className="flex items-center gap-1.5"
                       >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{isSubmitting ? "Saving..." : "Save Changes"}</span>
+                        Save Rates
                       </Button>
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-2 border-t border-slate-800/80">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 text-xs">
                     <div>
-                      <span className="text-[11px] text-slate-400 block">Monochrome (B/W)</span>
-                      <span className="text-sm font-semibold text-slate-100">
-                        ₹{(rule.bw_per_page_cents / 100).toFixed(2)}
+                      <span className="text-slate-500 block">Monochrome B&W</span>
+                      <span className="font-bold text-slate-900 text-sm">
+                        ₹{(rule.bw_per_page_cents / 100).toFixed(2)} / page
                       </span>
-                      <span className="text-[10px] text-slate-500 block">per printed side</span>
                     </div>
-
                     <div>
-                      <span className="text-[11px] text-slate-400 block">Full Color</span>
-                      <span className="text-sm font-semibold text-slate-100">
-                        ₹{(rule.color_per_page_cents / 100).toFixed(2)}
+                      <span className="text-slate-500 block">Color Page</span>
+                      <span className="font-bold text-slate-900 text-sm">
+                        ₹{(rule.color_per_page_cents / 100).toFixed(2)} / page
                       </span>
-                      <span className="text-[10px] text-slate-500 block">per printed side</span>
                     </div>
-
                     <div>
-                      <span className="text-[11px] text-slate-400 block">Duplex Discount</span>
-                      <span className="text-sm font-semibold text-emerald-400">
-                        -₹{(rule.duplex_discount_cents / 100).toFixed(2)}
+                      <span className="text-slate-500 block">Duplex Discount</span>
+                      <span className="font-bold text-slate-900 text-sm">
+                        ₹{(rule.duplex_discount_cents / 100).toFixed(2)} / sheet
                       </span>
-                      <span className="text-[10px] text-slate-500 block">per two-sided sheet</span>
                     </div>
-
                     <div>
-                      <span className="text-[11px] text-slate-400 block">Minimum Order</span>
-                      <span className="text-sm font-semibold text-slate-100">
+                      <span className="text-slate-500 block">Minimum Order</span>
+                      <span className="font-bold text-slate-900 text-sm">
                         ₹{(rule.minimum_order_cents / 100).toFixed(2)}
                       </span>
-                      <span className="text-[10px] text-slate-500 block">cart floor</span>
                     </div>
                   </div>
                 )}

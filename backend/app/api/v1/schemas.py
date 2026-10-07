@@ -117,7 +117,8 @@ class JobStatusUpdateRequest(BaseModel):
 
 # Pickup Verification
 class PickupConfirmRequest(BaseModel):
-    order_id: str
+    order_id: Optional[str] = None
+    order_number: Optional[str] = None
     otp: str
 
 

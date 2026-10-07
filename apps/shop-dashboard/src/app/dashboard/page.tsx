@@ -23,6 +23,9 @@ import { PricingView } from "@/components/views/PricingView";
 import { AuditLogsView } from "@/components/views/AuditLogsView";
 import { QrView } from "@/components/views/QrView";
 import { SettingsView } from "@/components/views/SettingsView";
+import { PickupView } from "@/components/views/PickupView";
+import { PaymentsView } from "@/components/views/PaymentsView";
+import { AnalyticsView } from "@/components/views/AnalyticsView";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
@@ -144,7 +147,7 @@ export default function ShopDashboard() {
         return [];
       }
     },
-    enabled: activeTab === "orders",
+    enabled: activeTab === "orders" || activeTab === "payments" || activeTab === "analytics",
   });
 
   const {
@@ -342,8 +345,12 @@ export default function ShopDashboard() {
   const shopSlug = dashboardData?.shop?.slug || "campus-xerox";
   const isQueuePaused = !!dashboardData?.shop?.is_queue_paused;
 
+  const pickupReadyCount = queueItems.filter(
+    (item: any) => item.order_status === "PICKUP_READY"
+  ).length;
+
   return (
-    <div className="flex h-screen w-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Persistent Left Sidebar */}
       <Sidebar
         currentTab={activeTab}
@@ -352,6 +359,7 @@ export default function ShopDashboard() {
         operatorName={operatorEmail}
         onLogout={handleLogout}
         waitingQueueCount={stats.waiting_jobs}
+        pickupReadyCount={pickupReadyCount}
         availableShops={operatorShops}
         selectedShopId={selectedShopId}
         onSelectShop={(id) => {
@@ -363,45 +371,39 @@ export default function ShopDashboard() {
 
       {/* Main Operational Canvas */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Operational Bar (Requirements 9, 10, 24, 32) */}
-        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-2.5 flex items-center justify-between shrink-0 sticky top-0 z-30">
+        {/* Top Header Bar */}
+        <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2.5">
-              <h1 className="text-sm font-bold text-slate-100 font-sans tracking-tight">
+              <h1 className="text-sm font-bold text-slate-900 tracking-tight">
                 {shopName}
               </h1>
               <span
-                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase border ${
+                className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border ${
                   isQueuePaused
-                    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
                 }`}
               >
-                {isQueuePaused ? "PAUSED" : "OPEN"}
+                {isQueuePaused ? "PAUSED" : "● OPEN"}
               </span>
-              <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">
-                &bull; {stats.online_printers} / {stats.total_printers} printers online &bull; {stats.active_jobs} printing &bull; {stats.waiting_jobs} waiting
+              <span className="text-xs text-slate-500 hidden sm:inline">
+                &bull; {stats.online_printers}/{stats.total_printers} printers online &bull; {stats.active_jobs} printing &bull; {stats.waiting_jobs} waiting
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 font-mono">
-              Cloud queue orchestration with local printer execution.
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Run Demo Print development control (Requirement 24) */}
+            {/* Run Demo Print dev trigger */}
             <Button
               variant="outline"
               size="sm"
               onClick={handleRunDemoPrint}
               disabled={isRunningDemo}
-              className="flex items-center gap-1.5 text-xs h-8 border-purple-500/40 text-purple-300 hover:bg-purple-950/40"
+              className="flex items-center gap-1.5 text-xs h-8 text-slate-700 border-slate-200 hover:bg-slate-100"
             >
               <span>⚡</span>
-              <span>{isRunningDemo ? "Spooling Demo..." : "Run Demo Print"}</span>
-              <span className="px-1 py-0.2 rounded text-[9px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                Dev
-              </span>
+              <span>{isRunningDemo ? "Spooling..." : "Demo Print"}</span>
             </Button>
 
             <Button
@@ -413,7 +415,7 @@ export default function ShopDashboard() {
               {isQueuePaused ? (
                 <>
                   <Play className="w-3.5 h-3.5" />
-                  <span>Resume Queue</span>
+                  <span>Resume Intake</span>
                 </>
               ) : (
                 <>
@@ -426,20 +428,19 @@ export default function ShopDashboard() {
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-4">
+        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
           {/* Action Notification Banner */}
           {actionMessage && (
-            <div className="p-3 bg-blue-950/70 border border-blue-800/80 rounded-md text-xs text-blue-200 flex items-center justify-between">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-center justify-between">
               <span>{actionMessage}</span>
               <button
                 onClick={() => setActionMessage(null)}
-                className="text-slate-400 hover:text-white p-0.5"
+                className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
-
           {/* VIEW SWITCHER */}
           {activeTab === "overview" && (
             <OverviewView
@@ -473,11 +474,38 @@ export default function ShopDashboard() {
             />
           )}
 
+          {activeTab === "pickup" && (
+            <PickupView
+              queueItems={queueItems}
+              onRefresh={() => {
+                refetchQueue();
+                refetchDashboard();
+              }}
+              getAuthHeaders={getAuthHeaders}
+            />
+          )}
+
           {activeTab === "orders" && (
             <OrdersView
               orders={orders}
               isLoading={isLoadingOrders}
               onRefresh={refetchOrders}
+            />
+          )}
+
+          {activeTab === "payments" && (
+            <PaymentsView
+              orders={orders}
+              isLoading={isLoadingOrders}
+              onRefresh={refetchOrders}
+            />
+          )}
+
+          {activeTab === "analytics" && (
+            <AnalyticsView
+              stats={stats}
+              orders={orders}
+              printers={printers}
             />
           )}
 
@@ -541,13 +569,13 @@ export default function ShopDashboard() {
         >
           <div className="space-y-4 pt-1">
             {pickupError && (
-              <div className="p-2.5 bg-red-950/60 border border-red-800 rounded text-xs text-red-300">
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                 {pickupError}
               </div>
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300 block text-center">
+              <label className="text-xs font-semibold text-slate-700 block text-center">
                 6-Digit Pickup Code
               </label>
               <input
@@ -557,16 +585,16 @@ export default function ShopDashboard() {
                 value={pickupOtpInput}
                 onChange={(e) => setPickupOtpInput(e.target.value.replace(/\D/g, ""))}
                 placeholder="482913"
-                className="w-full text-center tracking-widest font-mono text-2xl py-2.5 rounded bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-blue-500"
+                className="w-full text-center tracking-widest font-mono text-2xl font-bold py-2.5 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 shadow-inner"
               />
             </div>
 
-            <div className="p-3 bg-slate-950 border border-slate-800/80 rounded text-[11px] text-slate-400">
-              <span className="font-semibold text-slate-300 block mb-0.5">Privacy Invariant</span>
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500">
+              <span className="font-semibold text-slate-700 block mb-0.5">Privacy Invariant</span>
               Once confirmed, the order will mark as COMPLETED and document retention schedule begins.
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <Button
                 variant="ghost"
                 size="sm"
@@ -599,9 +627,9 @@ export default function ShopDashboard() {
           description={`Physical print status for ${reconcileModalJob.order_number} is ambiguous. Operator must inspect the physical tray before deciding.`}
         >
           <div className="space-y-3 pt-1">
-            <div className="p-3 bg-amber-950/30 border border-amber-900/50 rounded text-xs text-amber-300 space-y-1">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 space-y-1">
               <span className="font-semibold block">Physical Paper Invariant</span>
-              <p className="text-[11px] text-amber-400/90">
+              <p className="text-[11px] text-amber-700">
                 Automatic retry is strictly prohibited to avoid paper wastage and privacy leaks. Inspect printer output tray.
               </p>
             </div>
@@ -621,14 +649,14 @@ export default function ShopDashboard() {
                 variant="secondary"
                 size="sm"
                 onClick={() => handleReconcileDecision("RETRY_PRINT")}
-                className="w-full justify-center flex items-center gap-2 text-amber-300"
+                className="w-full justify-center flex items-center gap-2 text-amber-800 border-amber-300"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>No Paper Printed (Re-enqueue Job)</span>
               </Button>
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex justify-end border-t border-slate-100">
               <Button
                 variant="ghost"
                 size="sm"

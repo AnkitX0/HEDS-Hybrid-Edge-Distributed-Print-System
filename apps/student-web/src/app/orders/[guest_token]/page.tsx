@@ -11,6 +11,11 @@ import {
   FileText,
   AlertTriangle,
   RotateCw,
+  Sparkles,
+  Layers,
+  ArrowRight,
+  Copy,
+  Check,
 } from "lucide-react";
 import { apiClient, ApiError } from "@/lib/api/client";
 
@@ -36,8 +41,14 @@ export default function OrderTrackingPage() {
   const guestToken = params.guest_token as string;
   const queryClient = useQueryClient();
   const [sseActive, setSseActive] = useState<boolean>(false);
+  const [copiedToken, setCopiedToken] = useState<boolean>(false);
 
-  const { data: order, isLoading, error, refetch } = useQuery<OrderDetail>({
+  const {
+    data: order,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<OrderDetail>({
     queryKey: ["order", guestToken],
     queryFn: async () => {
       return apiClient.get<OrderDetail>(`/api/v1/orders/${guestToken}`);
@@ -108,11 +119,18 @@ export default function OrderTrackingPage() {
     };
   }, [guestToken, order?.status, queryClient]);
 
+  const copyOrderRef = () => {
+    if (!order) return;
+    navigator.clipboard.writeText(order.order_number);
+    setCopiedToken(true);
+    setTimeout(() => setCopiedToken(false), 2000);
+  };
+
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] text-slate-500 space-y-2">
-        <div className="w-5 h-5 border-2 border-slate-600 border-t-blue-600 rounded-full animate-spin" />
-        <p className="text-xs">Loading order status...</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500 space-y-3">
+        <div className="w-8 h-8 border-3 border-slate-300 border-t-indigo-600 rounded-full animate-spin" />
+        <p className="text-sm font-medium">Loading your print token...</p>
       </div>
     );
   }
@@ -126,23 +144,23 @@ export default function OrderTrackingPage() {
       apiErr?.status === 503;
 
     return (
-      <div className="p-6 bg-white rounded-md border border-slate-200 text-center space-y-3">
+      <div className="p-6 bg-white rounded-xl border border-slate-200 text-center space-y-3 shadow-sm my-6">
         <div
-          className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto ${
+          className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
             isNotFound ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"
           }`}
         >
-          <AlertTriangle className="w-5 h-5" />
+          <AlertTriangle className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">
+          <h2 className="text-sm font-bold text-slate-900">
             {isNotFound
               ? "Order Not Found"
               : isConnError
               ? "Cannot Connect to Print Service"
               : "Order Tracking Unavailable"}
           </h2>
-          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto">
+          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto leading-relaxed">
             {isNotFound
               ? "The requested print order does not exist or has expired. Please verify your tracking link."
               : isConnError
@@ -153,7 +171,7 @@ export default function OrderTrackingPage() {
         <div className="pt-2">
           <button
             onClick={() => refetch()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
           >
             <RotateCw className="w-3.5 h-3.5" />
             Retry
@@ -163,6 +181,9 @@ export default function OrderTrackingPage() {
     );
   }
 
+  // Derive human-readable token number from order reference (e.g. ORD-92657 -> #57)
+  const tokenNumber = order.order_number.replace(/\D/g, "").slice(-2) || "01";
+
   const isCompleted = order.status === "COMPLETED";
   const isPickupReady = order.status === "PICKUP_READY";
   const isPrinting = order.status === "PRINTING";
@@ -170,220 +191,260 @@ export default function OrderTrackingPage() {
     order.status === "QUEUED" ||
     order.status === "DISPATCHED" ||
     order.status === "PAID";
-  const isFailed =
-    order.status === "PRINT_FAILED" ||
-    order.status === "RECONCILING" ||
-    order.status === "FAILED";
-
-  // 4 Logistics Stages: Payment -> Queued -> Printing -> Pickup
-  const stagePaymentDone = true; // Since student made payment
-  const stageQueueDone = isPrinting || isPickupReady || isCompleted;
-  const stagePrintDone = isPickupReady || isCompleted;
-  const stagePickupDone = isCompleted;
 
   return (
-    <div className="space-y-4">
-      {/* 1. Order Logistics Card (Directive 16) */}
-      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-              Order Reference
-            </span>
-            <h1 className="text-sm font-bold text-slate-900 font-mono tracking-tight">
-              {order.order_number}
-            </h1>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <span className="text-[11px] text-slate-500 font-mono">
-              {order.created_at ? new Date(order.created_at).toLocaleTimeString() : ""}
-            </span>
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-mono">
+    <div className="space-y-4 pb-8">
+      {/* 1. Memorable Ticket / Token Card (Directive 10) */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden ticket-edge">
+        {/* Ticket Header Stub */}
+        <div className="bg-slate-900 text-white p-5 text-center space-y-1 relative">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>PRINT TOKEN</span>
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px]">
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  sseActive ? "bg-emerald-500 animate-pulse" : "bg-amber-400"
+                  sseActive ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
                 }`}
               />
-              <span className="text-slate-500">
-                {sseActive ? "Realtime (SSE)" : "Polling (2.5s)"}
+              <span>{sseActive ? "Live SSE" : "Polling"}</span>
+            </div>
+          </div>
+
+          {/* Token Big Badge */}
+          <div className="py-2">
+            <span className="text-4xl font-black tracking-tight text-white font-mono">
+              #{tokenNumber}
+            </span>
+          </div>
+
+          {/* Human status summary */}
+          <p className="text-xs font-medium text-indigo-300">
+            {isCompleted
+              ? "Print Collected ✓"
+              : isPickupReady
+              ? "Ready for Counter Pickup!"
+              : isPrinting
+              ? "Now Printing on Hardware..."
+              : "In Digital Print Queue"}
+          </p>
+        </div>
+
+        {/* Perforation Dashed Separator */}
+        <div className="border-t-2 border-dashed border-slate-200 my-0 relative" />
+
+        {/* Ticket Body Content */}
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block">
+                Queue Position
+              </span>
+              <span className="text-sm font-bold text-slate-900 mt-0.5 block">
+                {isCompleted
+                  ? "Done"
+                  : isPickupReady
+                  ? "At Counter"
+                  : isPrinting
+                  ? "At Printer"
+                  : `Position ${order.queue_position || 1}`}
+              </span>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block">
+                Est. Wait
+              </span>
+              <span className="text-sm font-bold text-slate-900 mt-0.5 block">
+                {isCompleted
+                  ? "0 min"
+                  : isPickupReady
+                  ? "Ready Now"
+                  : `~${order.estimated_wait_minutes || 2} min`}
               </span>
             </div>
           </div>
-        </div>
 
-        {/* 4-Step Restrained Logistics Stepper */}
-        <div className="grid grid-cols-4 gap-1 text-center pt-1 border-t border-slate-100">
-          {/* Step 1: Payment */}
-          <div className="space-y-1">
-            <div
-              className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-semibold ${
-                stagePaymentDone
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                  : "bg-slate-100 text-slate-400"
-              }`}
-            >
-              &#10003;
-            </div>
-            <span className="text-[10px] font-medium text-slate-700 block">Payment</span>
-          </div>
-
-          {/* Step 2: Queued */}
-          <div className="space-y-1">
-            <div
-              className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-semibold ${
-                stageQueueDone
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                  : isQueued
-                  ? "bg-blue-100 text-blue-800 border border-blue-400"
-                  : "bg-slate-100 text-slate-400 border border-slate-200"
-              }`}
-            >
-              {stageQueueDone ? "\u2713" : isQueued ? "\u25CF" : "\u25CB"}
-            </div>
-            <span className="text-[10px] font-medium text-slate-700 block">Queued</span>
-          </div>
-
-          {/* Step 3: Printing */}
-          <div className="space-y-1">
-            <div
-              className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-semibold ${
-                stagePrintDone
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                  : isPrinting
-                  ? "bg-blue-100 text-blue-800 border border-blue-400"
-                  : "bg-slate-100 text-slate-400 border border-slate-200"
-              }`}
-            >
-              {stagePrintDone ? "\u2713" : isPrinting ? "\u25CF" : "\u25CB"}
-            </div>
-            <span className="text-[10px] font-medium text-slate-700 block">Printing</span>
-          </div>
-
-          {/* Step 4: Pickup */}
-          <div className="space-y-1">
-            <div
-              className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-semibold ${
-                stagePickupDone
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                  : isPickupReady
-                  ? "bg-blue-100 text-blue-800 border border-blue-400"
-                  : "bg-slate-100 text-slate-400 border border-slate-200"
-              }`}
-            >
-              {stagePickupDone ? "\u2713" : isPickupReady ? "\u25CF" : "\u25CB"}
-            </div>
-            <span className="text-[10px] font-medium text-slate-700 block">Pickup</span>
-          </div>
-        </div>
-
-        {/* Live Operational Context */}
-        <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-xs space-y-1.5">
-          <div className="flex justify-between items-center">
-            <span className="text-slate-500">Current Status:</span>
-            <span className="font-semibold text-slate-900 font-mono">
-              {order.status}
-            </span>
-          </div>
-
-          {isQueued && (
-            <>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Queue Position:</span>
-                <span className="font-semibold text-slate-800">
-                  #{order.queue_position || 1} in queue
-                </span>
+          {/* Document Summary Row */}
+          <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-100 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-800 truncate">
+                  {order.document_name}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {order.document_pages} pages &bull; ₹
+                  {(order.total_amount_cents / 100).toFixed(2)}
+                </p>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Estimated Waiting Time:</span>
-                <span className="font-semibold text-slate-800">
-                  ~{order.estimated_wait_minutes || 2} min
-                </span>
-              </div>
-            </>
-          )}
-
-          {isPrinting && (
-            <div className="flex items-center gap-2 text-blue-700 pt-0.5">
-              <Printer className="w-3.5 h-3.5 shrink-0" />
-              <span>Physical hardware is spooling your pages.</span>
             </div>
-          )}
-
-          {isFailed && (
-            <div className="flex items-center gap-2 text-amber-700 pt-0.5">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              <span>Job is under operator physical reconciliation.</span>
-            </div>
-          )}
+            <button
+              onClick={copyOrderRef}
+              className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-500 hover:text-slate-800 px-2 py-1 bg-white rounded border border-slate-200"
+            >
+              {copiedToken ? (
+                <Check className="w-3 h-3 text-emerald-600" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+              <span>{order.order_number}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* 2. Privacy Hold Pickup UI (Directive 17) */}
-      {(isPickupReady || isCompleted) && (
-        <div className="bg-white rounded-md border border-slate-200 p-5 text-center space-y-3">
-          <div className="flex items-center justify-center gap-1.5 text-slate-700">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span className="text-xs font-semibold uppercase tracking-wider">
-              {isCompleted ? "Print Collected" : "Print Complete — Ready for Pickup"}
+      {/* 2. Privacy Hold & Secret Pickup OTP Card (Directive 11, 23) */}
+      {(isPickupReady || isCompleted || order.pickup_otp) && (
+        <div
+          className={`rounded-2xl p-4 border transition-all ${
+            isCompleted
+              ? "bg-slate-50 border-slate-200 text-slate-600"
+              : "bg-emerald-500 text-white border-emerald-600 shadow-md animate-pulse-ring"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider font-mono ${
+                isCompleted ? "text-slate-400" : "text-emerald-100"
+              }`}
+            >
+              Counter Pickup Verification
             </span>
+            <ShieldCheck
+              className={`w-4 h-4 ${isCompleted ? "text-slate-400" : "text-emerald-200"}`}
+            />
           </div>
 
-          <p className="text-xs text-slate-600 max-w-xs mx-auto">
-            {isCompleted
-              ? "Your document has been verified and picked up from the shop counter."
-              : "Your document is held safely in the output collection tray. Present this pickup code to the operator to release your pages:"}
-          </p>
-
-          <div className="py-1">
-            <div className="text-3xl font-mono font-bold tracking-widest bg-slate-100 text-slate-900 rounded-md py-3 border border-slate-300 inline-block px-6">
+          <div className="text-center py-2 space-y-1">
+            <span
+              className={`text-[11px] block ${
+                isCompleted ? "text-slate-500" : "text-emerald-100"
+              }`}
+            >
+              {isCompleted ? "Verified OTP Code" : "Present this 6-digit OTP to the shopkeeper:"}
+            </span>
+            <div
+              className={`text-3xl font-black font-mono tracking-widest py-1.5 px-4 rounded-xl inline-block ${
+                isCompleted
+                  ? "bg-slate-200 text-slate-700"
+                  : "bg-white text-emerald-800 shadow-sm"
+              }`}
+            >
               {order.pickup_otp || "482913"}
             </div>
           </div>
 
-          <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
-            Your document will remain in pickup hold until the shop operator enters and verifies this code.
-          </p>
+          {!isCompleted && (
+            <p className="text-[11px] text-center text-emerald-100 font-medium">
+              Keep this OTP private until you are at the counter to collect your pages.
+            </p>
+          )}
         </div>
       )}
 
-      {/* 3. Document Details & Receipt Summary */}
-      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-        <span className="text-xs font-semibold text-slate-900 block">
-          Document & Receipt
+      {/* 3. 4-Stage Human Status Stepper (Directive 11) */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm space-y-3">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
+          Order Progress
         </span>
 
-        <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100">
-          <div className="p-2 bg-slate-100 rounded text-slate-700 shrink-0">
-            <FileText className="w-4 h-4" />
+        <div className="space-y-3 pt-1">
+          {/* Stage 1: Payment */}
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center justify-center text-xs font-bold flex-shrink-0">
+              &#10003;
+            </div>
+            <div className="flex-1 text-xs">
+              <span className="font-semibold text-slate-800 block">Payment Settled</span>
+              <span className="text-[11px] text-slate-400">
+                Authorized via sandbox gateway
+              </span>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-900 truncate">
-              {order.document_name}
-            </p>
-            <p className="text-[11px] text-slate-500 font-mono">
-              {order.document_pages} {order.document_pages === 1 ? "page" : "pages"} &bull;{" "}
-              {order.pricing_breakdown?.color_mode || "BW"} &bull;{" "}
-              {order.pricing_breakdown?.duplex ? "Duplex" : "1-sided"}
-            </p>
-          </div>
-        </div>
 
-        <div className="space-y-1.5 text-xs text-slate-600 pt-0.5">
-          <div className="flex justify-between">
-            <span>Copies</span>
-            <span className="font-medium text-slate-900">
-              {order.pricing_breakdown?.copies || 1}
-            </span>
+          {/* Stage 2: Queued */}
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                isPrinting || isPickupReady || isCompleted
+                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                  : isQueued
+                  ? "bg-indigo-100 text-indigo-700 border border-indigo-300 animate-pulse"
+                  : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {isPrinting || isPickupReady || isCompleted ? (
+                "✓"
+              ) : (
+                <Clock className="w-3.5 h-3.5" />
+              )}
+            </div>
+            <div className="flex-1 text-xs">
+              <span className="font-semibold text-slate-800 block">In Cloud Queue</span>
+              <span className="text-[11px] text-slate-400">
+                {isQueued && !isPrinting
+                  ? `Position ${order.queue_position || 1} &bull; Waiting for printer lease`
+                  : "Assigned to shop hardware"}
+              </span>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span>Paper Size</span>
-            <span className="font-medium text-slate-900">
-              {order.pricing_breakdown?.paper_size || "A4"}
-            </span>
+
+          {/* Stage 3: Printing */}
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                isPickupReady || isCompleted
+                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                  : isPrinting
+                  ? "bg-indigo-600 text-white animate-pulse"
+                  : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {isPickupReady || isCompleted ? (
+                "✓"
+              ) : (
+                <Printer className="w-3.5 h-3.5" />
+              )}
+            </div>
+            <div className="flex-1 text-xs">
+              <span className="font-semibold text-slate-800 block">
+                {isPrinting ? "Printing in Progress..." : "Hardware Execution"}
+              </span>
+              <span className="text-[11px] text-slate-400">
+                {isPrinting
+                  ? "Spooling pages to physical Xerox tray"
+                  : isPickupReady || isCompleted
+                  ? "All pages physically spooled"
+                  : "Pending hardware availability"}
+              </span>
+            </div>
           </div>
-          <div className="flex justify-between pt-2 border-t border-slate-100 font-semibold text-slate-900">
-            <span>Total Paid</span>
-            <span className="font-mono">₹{(order.total_amount_cents / 100).toFixed(2)}</span>
+
+          {/* Stage 4: Pickup Ready */}
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                isCompleted
+                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                  : isPickupReady
+                  ? "bg-emerald-500 text-white animate-bounce"
+                  : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {isCompleted ? "✓" : <ShieldCheck className="w-3.5 h-3.5" />}
+            </div>
+            <div className="flex-1 text-xs">
+              <span className="font-semibold text-slate-800 block">
+                {isCompleted ? "Collected at Counter" : "Counter Handover"}
+              </span>
+              <span className="text-[11px] text-slate-400">
+                {isCompleted
+                  ? "Order verified and fulfilled"
+                  : isPickupReady
+                  ? "Present your OTP to the shopkeeper"
+                  : "Secured behind privacy hold OTP"}
+              </span>
+            </div>
           </div>
         </div>
       </div>

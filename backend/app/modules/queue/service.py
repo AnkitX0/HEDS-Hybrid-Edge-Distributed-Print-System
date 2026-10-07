@@ -59,19 +59,32 @@ class QueueService:
         printer_id: Optional[uuid.UUID] = None,
     ) -> Optional[PrintJob]:
         """
-        Acquires next available job using atomic row-level locking (FOR UPDATE SKIP LOCKED).
-        Assigns lease_id and lease_expires_at.
+        Acquires next available job using atomic row-level locking (FOR UPDATE SKIP LOCKED)
+        with deterministic capability-aware printer matching and lease assignment.
         """
         now = datetime.now(timezone.utc)
         lease_duration = timedelta(seconds=settings.JOB_LEASE_DURATION_SECONDS)
 
-        # Build query for eligible jobs: QUEUED or RECOVERABLE expired leases
+        # 1. Fetch available printers attached to this shop / agent
+        printer_query = (
+            select(Printer)
+            .where(
+                Printer.shop_id == shop_id,
+                or_(Printer.agent_id == agent_id, Printer.agent_id.is_(None)),
+                Printer.status.in_([PrinterStatus.ONLINE, PrinterStatus.BUSY]),
+            )
+        )
+        printers_res = await session.execute(printer_query)
+        available_printers = printers_res.scalars().all()
+
+        # 2. Build query for candidate eligible jobs
         query = (
             select(PrintJob)
             .join(Order, PrintJob.order_id == Order.id)
             .options(
                 selectinload(PrintJob.order).selectinload(Order.document),
                 selectinload(PrintJob.order).selectinload(Order.print_specification),
+                selectinload(PrintJob.printer),
             )
             .where(
                 PrintJob.shop_id == shop_id,
@@ -85,22 +98,79 @@ class QueueService:
             )
             .order_by(PrintJob.priority.asc(), PrintJob.queued_at.asc())
             .with_for_update(skip_locked=True)
-            .limit(1)
+            .limit(10)
         )
 
         result = await session.execute(query)
-        job = result.scalar_one_or_none()
+        candidate_jobs = result.scalars().all()
 
-        if not job:
+        if not candidate_jobs:
             return None
+
+        # 3. Deterministic Capability-Aware Matching
+        selected_job = None
+        selected_printer = None
+
+        for job in candidate_jobs:
+            if not available_printers:
+                # Fallback for environments with virtual/mock printers discovered post-lease
+                selected_job = job
+                break
+
+            spec = job.order.print_specification
+            needed_color = (spec.color_mode.value == "COLOR") if spec else False
+            needed_duplex = bool(spec.duplex) if spec else False
+            needed_paper = str(spec.paper_size or "A4").upper() if spec else "A4"
+
+            # Filter compatible printers
+            compatible = []
+            for p in available_printers:
+                caps = p.capabilities_json or {}
+                if needed_color and not caps.get("color", False):
+                    continue
+                if needed_duplex and not caps.get("duplex", False):
+                    continue
+                supported_sizes = [str(s).upper() for s in caps.get("paper_sizes", ["A4", "LETTER"])]
+                if needed_paper not in supported_sizes:
+                    continue
+                compatible.append(p)
+
+            if not compatible:
+                continue
+
+            # Deterministic ranking:
+            # 1. Idle (ONLINE) over BUSY
+            # 2. Monochrome affinity (prefer mono printer for B&W jobs to conserve color printer)
+            def rank_printer(p: Printer):
+                caps = p.capabilities_json or {}
+                is_online = 0 if p.status == PrinterStatus.ONLINE else 1
+                color_waste = 1 if (not needed_color and caps.get("color", False)) else 0
+                return (is_online, color_waste)
+
+            compatible.sort(key=rank_printer)
+            selected_job = job
+            selected_printer = compatible[0]
+            break
+
+        if not selected_job:
+            return None
+
+        job = selected_job
 
         # Lease the job
         lease_id = uuid.uuid4().hex
         job.lease_id = lease_id
         job.lease_expires_at = now + lease_duration
         job.agent_id = agent_id
-        if printer_id:
+
+        if selected_printer:
+            job.printer_id = selected_printer.id
+            job.printer = selected_printer
+            selected_printer.current_job_id = job.id
+            selected_printer.status = PrinterStatus.BUSY
+        elif printer_id:
             job.printer_id = printer_id
+
         job.status = JobStatus.DISPATCHED
         job.dispatched_at = now
         job.attempt_count += 1

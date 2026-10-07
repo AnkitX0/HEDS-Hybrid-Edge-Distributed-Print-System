@@ -45,10 +45,12 @@ export default function ShopDashboard() {
   const [reconcileModalJob, setReconcileModalJob] = useState<any | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  const [isRunningDemo, setIsRunningDemo] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem("heds_token");
     if (!token) {
-      router.push("/");
+      router.push("/login");
     }
     const role = localStorage.getItem("heds_user_role");
     if (role) setUserRole(role);
@@ -68,7 +70,7 @@ export default function ShopDashboard() {
     queryFn: async () => {
       const res = await fetch("/api/v1/shop/dashboard", { headers: getAuthHeaders() });
       if (res.status === 401) {
-        router.push("/");
+        router.push("/login");
         throw new Error("Unauthorized");
       }
       return res.json();
@@ -123,7 +125,7 @@ export default function ShopDashboard() {
       const res = await fetch("/api/v1/shop/agents", { headers: getAuthHeaders() });
       return res.json();
     },
-    enabled: activeTab === "agents",
+    enabled: activeTab === "agents" || activeTab === "overview",
     refetchInterval: 5000,
   });
 
@@ -137,7 +139,8 @@ export default function ShopDashboard() {
       const res = await fetch("/api/v1/shop/audit-logs", { headers: getAuthHeaders() });
       return res.json();
     },
-    enabled: activeTab === "audit",
+    enabled: activeTab === "audit" || activeTab === "overview",
+    refetchInterval: 4000,
   });
 
   const {
@@ -193,6 +196,28 @@ export default function ShopDashboard() {
       refetchDashboard();
     } catch (err: any) {
       setActionMessage(err.message);
+    }
+  };
+
+  const handleRunDemoPrint = async () => {
+    setIsRunningDemo(true);
+    try {
+      const res = await fetch("/api/v1/dev/demo-print", {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.detail || "Failed to trigger demo print");
+      }
+      const data = await res.json();
+      setActionMessage(`⚡ Demo print triggered: Order ${data.order_number} enqueued (${data.amount_formatted}). Live execution running!`);
+      refetchQueue();
+      refetchDashboard();
+    } catch (err: any) {
+      setActionMessage(err.message || "Failed to run demo print");
+    } finally {
+      setIsRunningDemo(false);
     }
   };
 
@@ -266,7 +291,7 @@ export default function ShopDashboard() {
   const handleLogout = () => {
     localStorage.removeItem("heds_token");
     localStorage.removeItem("heds_user_role");
-    router.push("/");
+    router.push("/login");
   };
 
   const stats = dashboardData?.stats || {
@@ -298,31 +323,47 @@ export default function ShopDashboard() {
 
       {/* Main Operational Canvas */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Operational Bar */}
-        <header className="h-14 border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 flex items-center justify-between shrink-0 sticky top-0 z-30">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-200 capitalize">
-              {activeTab === "overview"
-                ? "Operational Overview"
-                : activeTab === "queue"
-                ? "Active Dispatch Queue"
-                : activeTab === "orders"
-                ? "Orders Ledger"
-                : activeTab === "printers"
-                ? "Printers Fleet"
-                : activeTab === "agents"
-                ? "Edge Agents"
-                : activeTab === "pricing"
-                ? "Pricing Engine"
-                : activeTab === "audit"
-                ? "Audit Trail"
-                : activeTab === "qr"
-                ? "Student Storefront QR"
-                : "Shop Settings"}
-            </span>
+        {/* Top Operational Bar (Requirements 9, 10, 24, 32) */}
+        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-2.5 flex items-center justify-between shrink-0 sticky top-0 z-30">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-sm font-bold text-slate-100 font-sans tracking-tight">
+                {shopName}
+              </h1>
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase border ${
+                  isQueuePaused
+                    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                }`}
+              >
+                {isQueuePaused ? "PAUSED" : "OPEN"}
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">
+                &bull; {stats.online_printers} / {stats.total_printers} printers online &bull; {stats.active_jobs} printing &bull; {stats.waiting_jobs} waiting
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 font-mono">
+              Cloud queue orchestration with local printer execution.
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Run Demo Print development control (Requirement 24) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRunDemoPrint}
+              disabled={isRunningDemo}
+              className="flex items-center gap-1.5 text-xs h-8 border-purple-500/40 text-purple-300 hover:bg-purple-950/40"
+            >
+              <span>⚡</span>
+              <span>{isRunningDemo ? "Spooling Demo..." : "Run Demo Print"}</span>
+              <span className="px-1 py-0.2 rounded text-[9px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                Dev
+              </span>
+            </Button>
+
             <Button
               variant={isQueuePaused ? "primary" : "secondary"}
               size="sm"
@@ -345,7 +386,7 @@ export default function ShopDashboard() {
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5">
+        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-4">
           {/* Action Notification Banner */}
           {actionMessage && (
             <div className="p-3 bg-blue-950/70 border border-blue-800/80 rounded-md text-xs text-blue-200 flex items-center justify-between">
@@ -365,6 +406,8 @@ export default function ShopDashboard() {
               stats={stats}
               queueItems={queueItems}
               printers={printers}
+              agents={agents}
+              auditLogs={auditLogs}
               onNavigate={setActiveTab}
               onVerifyOtp={(item) => {
                 setPickupModalOrder(item);

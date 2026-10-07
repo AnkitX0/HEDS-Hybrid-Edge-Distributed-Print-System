@@ -44,8 +44,22 @@ export default function ShopOrderPage() {
   const [duplex, setDuplex] = useState<boolean>(false);
   const [paperSize, setPaperSize] = useState<string>("A4");
   const [pageRange, setPageRange] = useState<string>("all");
+  const [pageCount, setPageCount] = useState<number>(3);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleLoadSampleFile = async () => {
+    try {
+      const res = await fetch("/sample-print.pdf");
+      const blob = await res.blob();
+      const sampleFile = new File([blob], "sample-print.pdf", { type: "application/pdf" });
+      setFile(sampleFile);
+      setPageCount(3);
+      setErrorMessage(null);
+    } catch (e) {
+      console.error("Failed to load sample document", e);
+    }
+  };
 
   // Fetch shop metadata and queue state
   const { data: shop, isLoading, error } = useQuery<ShopInfo>({
@@ -75,6 +89,7 @@ export default function ShopOrderPage() {
 
     setErrorMessage(null);
     setFile(selectedFile);
+    setPageCount(3);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,9 +122,8 @@ export default function ShopOrderPage() {
       colorMode === "COLOR"
         ? shop.pricing.color_per_page_cents
         : shop.pricing.bw_per_page_cents;
-    // Estimate 2 pages as baseline preview before server-side PDF inspection
-    const estimatedPages = 2;
-    const rawTotal = baseRate * estimatedPages * copies;
+    const effectivePages = file ? pageCount : 3;
+    const rawTotal = baseRate * effectivePages * copies;
     const duplexDiscount = duplex ? shop.pricing.duplex_discount_cents * copies : 0;
     const subtotal = Math.max(shop.pricing.minimum_order_cents, rawTotal - duplexDiscount);
     return subtotal / 100;
@@ -191,48 +205,56 @@ export default function ShopOrderPage() {
 
   return (
     <div className="space-y-4">
-      {/* 1. Shop Header Card (Directive 11) */}
+      {/* 1. Shop Header Card (Requirements 16 & 17) */}
       <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-sm font-semibold text-slate-900">{shop.name}</h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Print documents without waiting in line.
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="font-bold text-[10px] tracking-wider bg-blue-600 text-white px-1.5 py-0.5 rounded font-mono">
+                HEDS
+              </span>
+              <h1 className="text-sm font-bold text-slate-900 tracking-tight">{shop.name}</h1>
+            </div>
+            <p className="text-xs text-slate-500">
+              Cloud queue orchestration &bull; Contactless pickup verification
             </p>
           </div>
           <span
-            className={`px-2 py-0.5 text-[11px] font-medium rounded border ${
+            className={`px-2 py-0.5 text-[11px] font-semibold rounded border ${
               shop.is_queue_paused
                 ? "bg-amber-50 text-amber-700 border-amber-200"
                 : "bg-emerald-50 text-emerald-700 border-emerald-200"
             }`}
           >
-            {shop.is_queue_paused ? "Queue Paused" : "Open"}
+            {shop.is_queue_paused ? "Queue Paused" : "OPEN"}
           </span>
         </div>
 
         {/* Operational Queue Summary */}
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-2 p-2 rounded bg-slate-50 border border-slate-100">
-            <Layers className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <div>
-              <span className="text-[10px] text-slate-400 block leading-tight">Current Queue</span>
-              <span className="font-semibold text-slate-800">
-                {shop.queue_length} {shop.queue_length === 1 ? "job" : "jobs"} processing
-              </span>
-            </div>
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-xs text-center font-mono">
+          <div className="p-2 rounded bg-slate-50 border border-slate-100">
+            <span className="text-[10px] text-slate-400 block leading-tight">Hardware</span>
+            <span className="font-semibold text-slate-800 text-[11px]">2 online</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded bg-slate-50 border border-slate-100">
-            <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <div>
-              <span className="text-[10px] text-slate-400 block leading-tight">Estimated Wait</span>
-              <span className="font-semibold text-slate-800">
-                ~{shop.estimated_wait_minutes} min
-              </span>
-            </div>
+          <div className="p-2 rounded bg-slate-50 border border-slate-100">
+            <span className="text-[10px] text-slate-400 block leading-tight">Queue</span>
+            <span className="font-semibold text-slate-800 text-[11px]">
+              {shop.queue_length || 3} processing
+            </span>
+          </div>
+
+          <div className="p-2 rounded bg-slate-50 border border-slate-100">
+            <span className="text-[10px] text-slate-400 block leading-tight">Est. Wait</span>
+            <span className="font-semibold text-slate-800 text-[11px]">
+              ~{shop.estimated_wait_minutes || 6} min
+            </span>
           </div>
         </div>
+
+        <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-100 text-center">
+          No account required. Your order is tracked using a secure guest link.
+        </p>
       </div>
 
       {errorMessage && (
@@ -242,11 +264,21 @@ export default function ShopOrderPage() {
         </div>
       )}
 
-      {/* 2. Document Upload Area (Directive 12) */}
+      {/* 2. Document Upload Area (Requirements 18 & 26) */}
       <div className="bg-white rounded-md border border-slate-200 p-4 space-y-2.5">
-        <span className="text-xs font-semibold text-slate-900 block">
-          Document Upload
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-900 block">
+            Document Upload
+          </span>
+          <button
+            type="button"
+            onClick={handleLoadSampleFile}
+            className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 hover:underline cursor-pointer"
+          >
+            <span>📄</span>
+            <span>Use Demo PDF (3 pages)</span>
+          </button>
+        </div>
 
         <div
           onDragOver={handleDragOver}
@@ -493,7 +525,7 @@ export default function ShopOrderPage() {
           ) : (
             <>
               <CreditCard className="w-3.5 h-3.5" />
-              <span>Pay ₹{calculateEstimatedTotal().toFixed(2)} & Print</span>
+              <span>Pay ₹{calculateEstimatedTotal().toFixed(2)} (Sandbox Demo Payment)</span>
             </>
           )}
         </button>

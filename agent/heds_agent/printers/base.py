@@ -8,6 +8,42 @@ class AdapterStatus(str, Enum):
     OFFLINE = "OFFLINE"
     BUSY = "BUSY"
     ERROR = "ERROR"
+    UNKNOWN = "UNKNOWN"
+
+
+class SubmitResult(dict):
+    """
+    Subclass of dict with boolean evaluation for backward compatibility:
+    `if result:` evaluates to `result.get('success', False)`.
+    """
+    def __init__(
+        self,
+        success: bool = True,
+        native_job_id: Optional[str] = None,
+        error: Optional[str] = None,
+        **kwargs,
+    ):
+        super().__init__(
+            success=success,
+            native_job_id=native_job_id,
+            error=error,
+            **kwargs,
+        )
+
+    @property
+    def success(self) -> bool:
+        return bool(self.get("success", False))
+
+    @property
+    def native_job_id(self) -> Optional[str]:
+        return self.get("native_job_id")
+
+    @property
+    def error(self) -> Optional[str]:
+        return self.get("error")
+
+    def __bool__(self) -> bool:
+        return self.success
 
 
 class PrinterAdapter(ABC):
@@ -34,11 +70,26 @@ class PrinterAdapter(ABC):
         document_bytes: bytes,
         print_spec: Dict[str, Any],
         progress_callback=None,
-    ) -> bool:
+    ) -> SubmitResult:
         """Execute physical or simulated printing with page progress callbacks"""
         pass
 
     @abstractmethod
-    def cancel_job(self, job_id: str) -> bool:
+    def cancel_job(self, job_id: str, native_job_id: Optional[str] = None) -> bool:
         """Abort physical print spooling"""
+        pass
+
+    @abstractmethod
+    def pause(self, printer_name: str) -> bool:
+        """Temporarily pause printer intake queue"""
+        pass
+
+    @abstractmethod
+    def resume(self, printer_name: str) -> bool:
+        """Resume printer intake queue"""
+        pass
+
+    @abstractmethod
+    def get_job_status(self, job_id: str, native_job_id: Optional[str] = None) -> str:
+        """Query native hardware or adapter job status"""
         pass

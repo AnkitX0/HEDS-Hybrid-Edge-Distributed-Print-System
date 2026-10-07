@@ -21,6 +21,7 @@ from app.api.v1.agents import router as agents_router
 from app.api.v1.queue import router as queue_router
 from app.api.v1.pickups import router as pickups_router
 from app.api.v1.printers_admin import router as printers_admin_router
+from app.api.v1.dev import router as dev_router
 
 
 async def background_reconciliation_worker():
@@ -138,3 +139,4 @@ app.include_router(agents_router, prefix="/api/v1")
 app.include_router(queue_router, prefix="/api/v1")
 app.include_router(pickups_router, prefix="/api/v1")
 app.include_router(printers_admin_router, prefix="/api/v1")
+app.include_router(dev_router, prefix="/api/v1")

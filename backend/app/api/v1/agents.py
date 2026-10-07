@@ -119,6 +119,8 @@ async def poll_next_job(
             "orientation": spec.orientation.value if spec else "PORTRAIT",
             "scaling": spec.scaling.value if spec else "FIT",
         },
+        printer_id=str(job.printer_id) if job.printer_id else None,
+        printer_name=job.printer.name if job.printer else None,
     )
 
 

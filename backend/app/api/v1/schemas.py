@@ -104,12 +104,15 @@ class JobLeaseResponse(BaseModel):
     document_filename: str
     page_count: int
     print_specification: Dict[str, Any]
+    printer_id: Optional[str] = None
+    printer_name: Optional[str] = None
 
 
 class JobStatusUpdateRequest(BaseModel):
     status: str  # "PRINTING", "COMPLETED", "FAILED"
     error_message: Optional[str] = None
     progress_page: Optional[int] = None
+    native_job_id: Optional[str] = None
 
 
 # Pickup Verification

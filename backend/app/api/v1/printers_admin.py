@@ -41,6 +41,102 @@ async def list_shop_printers(
     ]
 
 
+@router.post("/shop/printers/{printer_id}/test-print")
+async def trigger_printer_test_page(
+    printer_id: str,
+    current_user=Depends(require_shop_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Operator action: Dispatches an authoritative 1-page hardware diagnostics test page
+    through the standard HEDS queue -> agent -> adapter -> printer pipeline.
+    """
+    import secrets
+    import io
+    import hashlib
+    from pypdf import PdfWriter
+    from app.modules.documents.models import Document
+    from app.modules.documents.storage import storage_service
+    from app.modules.orders.models import Order, OrderState, PrintSpecification, ColorMode, Orientation, Scaling
+    from app.modules.queue.service import queue_service
+    from app.core.security import generate_guest_order_token
+
+    res = await db.execute(select(Printer).where(Printer.id == uuid.UUID(printer_id)))
+    printer = res.scalar_one_or_none()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    # Generate valid 1-page A4 diagnostics PDF
+    writer = PdfWriter()
+    writer.add_blank_page(width=595, height=842)
+    buf = io.BytesIO()
+    writer.write(buf)
+    pdf_bytes = buf.getvalue()
+
+    filename = f"heds_test_page_{printer.name.replace(' ', '_')}.pdf"
+    storage_path = await storage_service.save_file(
+        file_obj=io.BytesIO(pdf_bytes),
+        filename=filename,
+        content_type="application/pdf",
+    )
+
+    doc = Document(
+        shop_id=printer.shop_id,
+        original_filename=filename,
+        sanitized_filename=filename,
+        storage_path=storage_path,
+        mime_type="application/pdf",
+        file_size_bytes=len(pdf_bytes),
+        page_count=1,
+        checksum_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
+    )
+    db.add(doc)
+    await db.flush()
+
+    order_num = f"TEST-{secrets.randbelow(90000) + 10000}"
+    guest_token = generate_guest_order_token()
+
+    order = Order(
+        shop_id=printer.shop_id,
+        order_number=order_num,
+        guest_access_token=guest_token,
+        document_id=doc.id,
+        status=OrderState.PAID,
+        total_amount_cents=0,
+        currency="INR",
+        pricing_breakdown_json={"type": "DIAGNOSTIC_TEST_PAGE"},
+    )
+    db.add(order)
+    await db.flush()
+
+    spec = PrintSpecification(
+        order_id=order.id,
+        copies=1,
+        color_mode=ColorMode.BW,
+        duplex=False,
+        paper_size="A4",
+        page_range="1",
+        orientation=Orientation.PORTRAIT,
+        scaling=Scaling.FIT,
+    )
+    db.add(spec)
+    await db.flush()
+
+    # Enqueue with priority 1 (top of queue)
+    job = await queue_service.enqueue_order(session=db, order=order, priority=1)
+    job.printer_id = printer.id
+
+    await db.commit()
+
+    return {
+        "status": "QUEUED",
+        "job_id": str(job.id),
+        "order_number": order.order_number,
+        "printer_name": printer.name,
+        "message": f"Diagnostics test page queued for {printer.name}",
+    }
+
+
 @router.get("/shop/agents")
 async def list_shop_agents(
     current_user=Depends(require_shop_operator),

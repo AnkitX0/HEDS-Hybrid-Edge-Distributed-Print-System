@@ -77,3 +77,64 @@ Rather than a simple web uploader or SaaS mock, HEDS implements a resilient dist
 3. **Heartbeat & Telemetry**:
    - Edge agents transmit hardware profile, uptime, local queue depth, and printer statuses every 10 seconds.
    - Cloud dynamically evaluates agent health as `ONLINE`, `DEGRADED`, or `OFFLINE`.
+
+---
+
+## 4. Phase 3 Additions — Real Printer Integration
+
+### Printer Adapter Boundary
+
+The `PrinterAdapter` abstract interface (`agent/heds_agent/printers/base.py`) defines:
+
+```
+discover()          → List printer queues
+get_status()        → ONLINE / OFFLINE / BUSY / ERROR / UNKNOWN
+get_capabilities()  → paper_sizes, color, duplex, copies, max_dpi
+submit_job()        → SubmitResult(success, native_job_id, error)
+cancel_job()        → bool
+pause()             → bool
+resume()            → bool
+get_job_status()    → str
+```
+
+Backend logic never imports CUPS-specific types. The adapter boundary is complete.
+
+### CUPSPrinterAdapter
+
+`agent/heds_agent/printers/cups.py` provides:
+
+- **Dual execution mode**: uses `pycups` bindings if available, falls back to Linux CLI tools (`lp`, `lpstat`, `lpoptions`, `cancel`, `cupsenable`, `cupsdisable`)
+- **Dynamic printer discovery**: parses `lpstat -p` output
+- **Dynamic capability extraction**: parses `lpoptions -p <name> -l` for paper sizes, color, duplex, and DPI
+- **Canonical spec translation**: converts HEDS print spec to CUPS options (`sides=`, `ColorModel=`, `PageSize=`, `page-ranges=`, etc.)
+- **Secure document isolation**: temp file written at `0o600`, guaranteed `finally: os.remove()` cleanup
+- **CUPS Job ID capture**: parses `request id is <printer>-<num>` from lp stdout
+- **Idempotent cancellation**: `cancel <cups_job_id>` with pycups fallback
+
+### Capability-Aware Scheduler
+
+`backend/app/modules/queue/service.py::poll_and_lease_job()` now:
+
+1. Filters available printers by capability match (color, duplex, paper size)
+2. Rejects incompatible assignments before lease
+3. Prefers monochrome printers for B&W jobs (capacity preservation)
+4. Prefers IDLE over PRINTING printers (load distribution)
+
+### CUPS Job ID Tracking
+
+The agent stores the relationship `HEDS Job ID ↔ CUPS Job ID` in:
+- Local SQLite (`native_job_id` column in `local_jobs`)
+- Cloud API (`native_job_id` field in `JobStatusUpdateRequest`)
+
+This enables cross-referencing physical CUPS state with HEDS cloud state.
+
+### Operator Test Print
+
+`POST /api/v1/shop/printers/{id}/test-print` generates an authoritative 1-page A4 PDF
+and routes it through the full HEDS queue pipeline (not a bypass).
+
+### Structured Agent Logging
+
+Agent logs include: `event`, `heds_job_id`, `cups_job_id`, `printer`, `duration`, `status`.
+Sensitive fields (tokens, OTPs, signed URLs, document contents) are never logged.
+

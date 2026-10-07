@@ -1,4 +1,4 @@
-.PHONY: help setup dev dev-backend dev-student dev-shop dev-agent test migrate seed lint clean
+.PHONY: help setup dev dev-backend dev-student dev-shop dev-agent test migrate seed demo lint clean
 
 PYTHON = .venv/bin/python
 PIP = .venv/bin/pip
@@ -37,6 +37,9 @@ migrate:
 
 seed:
 	PYTHONPATH=backend $(PYTHON) scripts/seed.py
+
+demo:
+	bash scripts/demo.sh
 
 dev-backend:
 	PYTHONPATH=backend $(PYTHON) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

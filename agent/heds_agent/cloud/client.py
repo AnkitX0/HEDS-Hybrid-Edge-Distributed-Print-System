@@ -74,15 +74,19 @@ class CloudClient:
         status: str,
         progress_page: Optional[int] = None,
         error_message: Optional[str] = None,
+        native_job_id: Optional[str] = None,
     ) -> bool:
         try:
+            payload: Dict[str, Any] = {
+                "status": status,
+                "progress_page": progress_page,
+                "error_message": error_message,
+            }
+            if native_job_id:
+                payload["native_job_id"] = native_job_id
             resp = await self._client.post(
                 f"/api/v1/agents/jobs/{job_id}/status",
-                json={
-                    "status": status,
-                    "progress_page": progress_page,
-                    "error_message": error_message,
-                },
+                json=payload,
             )
             return resp.status_code == 200
         except Exception:

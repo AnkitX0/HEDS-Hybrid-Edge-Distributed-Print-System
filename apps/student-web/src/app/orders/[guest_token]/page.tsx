@@ -293,13 +293,13 @@ export default function OrderTrackingPage() {
         </div>
       </div>
 
-      {/* 2. Privacy Hold & Secret Pickup OTP Card (Directive 11, 23) */}
+      {/* 2. Privacy Hold & Secret Pickup OTP Card */}
       {(isPickupReady || isCompleted || order.pickup_otp) && (
         <div
           className={`rounded-2xl p-4 border transition-all ${
             isCompleted
               ? "bg-slate-50 border-slate-200 text-slate-600"
-              : "bg-emerald-500 text-white border-emerald-600 shadow-md animate-pulse-ring"
+              : "bg-emerald-600 text-white border-emerald-700 shadow-sm"
           }`}
         >
           <div className="flex items-center justify-between">
@@ -330,7 +330,7 @@ export default function OrderTrackingPage() {
                   : "bg-white text-emerald-800 shadow-sm"
               }`}
             >
-              {order.pickup_otp || "482913"}
+              {order.pickup_otp || "------"}
             </div>
           </div>
 

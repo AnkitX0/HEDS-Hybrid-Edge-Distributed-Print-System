@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Script from "next/script";
 import { useQuery } from "@tanstack/react-query";
 import {
   UploadCloud,
@@ -178,13 +179,54 @@ export default function StudentShopPage() {
         formData
       );
 
-      // Complete simulated payment
-      await apiClient.post<any>(
+      // Initiate payment intent
+      const payRes = await apiClient.post<any>(
         `/api/v1/orders/${orderData.guest_access_token}/payment`,
         { simulate_status: "success" }
       );
 
-      // Route directly to real-time order tracking
+      // If Razorpay gateway is active and modal is available
+      if (
+        payRes.gateway === "RAZORPAY" &&
+        payRes.status === "PENDING" &&
+        typeof window !== "undefined" &&
+        (window as any).Razorpay
+      ) {
+        const rzp = new (window as any).Razorpay({
+          key: payRes.key_id,
+          amount: payRes.amount_cents,
+          currency: payRes.currency || "INR",
+          order_id: payRes.gateway_order_id,
+          name: shop?.name || "Campus Xerox",
+          description: `Print Order #${orderData.order_number}`,
+          handler: async (response: any) => {
+            try {
+              await apiClient.post(
+                `/api/v1/orders/${orderData.guest_access_token}/payment/verify`,
+                {
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_signature: response.razorpay_signature,
+                }
+              );
+              router.push(`/orders/${orderData.guest_access_token}`);
+            } catch (vErr: any) {
+              setErrorMessage("Payment verification failed. Please try again.");
+              setSubmitting(false);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setSubmitting(false);
+              setErrorMessage("Payment was cancelled. Click below to retry.");
+            },
+          },
+        });
+        rzp.open();
+        return;
+      }
+
+      // Route directly to real-time order tracking (Mock gateway or instant completion)
       router.push(`/orders/${orderData.guest_access_token}`);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -646,6 +688,8 @@ export default function StudentShopPage() {
           )}
         </button>
       </div>
+
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
     </div>
   );
 }

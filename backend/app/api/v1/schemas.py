@@ -75,6 +75,15 @@ class PaymentResponse(BaseModel):
     status: str
     gateway: str
     message: str
+    gateway_order_id: Optional[str] = None
+    currency: Optional[str] = "INR"
+    key_id: Optional[str] = None
+
+
+class PaymentVerifyRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
 
 
 # Edge Agent Schemas

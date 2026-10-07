@@ -211,11 +211,12 @@ Run the full automated test suite (Unit, Integration, Reliability, Chaos, and E2
 make test
 ```
 
-### Test Coverage Highlights (32/32 Passing Tests):
+### Test Coverage Highlights (34/34 Passing Tests):
 - `tests/reliability/test_duplicate_webhook.py`: Fires duplicate payment webhooks concurrently; proves exactly 1 print job created.
 - `tests/reliability/test_lease_expiration.py`: Simulates agent crash; proves lease expiration recovery into `RECONCILING`.
 - `tests/reliability/test_printer_failure.py`: Simulates hardware failure; proves transition to `PRINT_FAILED` and controlled operator retry.
 - `tests/e2e/test_vertical_slice.py`: End-to-end verification of the complete student-to-pickup lifecycle.
+- `tests/unit/test_payments.py`: Validates Razorpay HMAC signature verification endpoint, sandbox flow, and pickup OTP rate limiting.
 - `tests/unit/test_pricing.py`: Validates page ranges, duplex discounting, and base price calculation.
 - `tests/unit/test_agent_cups.py`: Validates Linux CUPS/IPP option parsing and pycups bindings.
 
@@ -234,9 +235,9 @@ An honest evaluation of the project's engineering milestones:
 | **Edge Print Daemon** | **Implemented** | Python daemon, outbound HTTPS client, SQLite durable queue, heartbeat telemetry. |
 | **Mock Printing Simulation** | **Implemented** | Real-time page-by-page progress simulation, failure injection hooks. |
 | **CUPS / IPP Driver Layer** | **Implemented** | pycups bindings & CLI fallback; *Hardware qualification pending*. |
-| **Payment Integration** | **Mock Implemented** | Authoritative pricing engine, sandbox payment flow, Razorpay gateway boundary; *Live merchant verification pending*. |
-| **Pickup Station & Security** | **Implemented** | 6-digit OTP generation, PBKDF2/SHA-256 salted verification, handover confirmation. |
-| **Automated Test Suite** | **32/32 Passing** | E2E, reliability, concurrency, state machine, and adapter tests pass cleanly. |
+| **Payment Integration** | **Sandbox & Mock Verified** | Authoritative pricing engine, Razorpay cryptographic verification endpoint, nested webhook processing; *Live merchant production keys pending*. |
+| **Pickup Station & Security** | **Implemented & Rate-Limited** | 6-digit OTP generation, PBKDF2/SHA-256 salted verification, brute-force rate limiter (5 max attempts). |
+| **Automated Test Suite** | **34/34 Passing** | E2E, reliability, concurrency, cryptographic payment verification, state machine, and adapter tests pass cleanly. |
 | **Production Staging Deployment** | **Pending** | Pending cloud staging cluster, domain routing, and physical multi-printer lab test. |
 
 ---

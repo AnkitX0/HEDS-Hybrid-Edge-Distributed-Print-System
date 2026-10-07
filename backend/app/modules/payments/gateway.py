@@ -25,6 +25,7 @@ class PaymentGateway(ABC):
         self,
         payment_id: str,
         signature: Optional[str] = None,
+        gateway_order_id: Optional[str] = None,
     ) -> bool:
         """Verify payment confirmation with gateway"""
         pass
@@ -75,6 +76,7 @@ class MockPaymentGateway(PaymentGateway):
         self,
         payment_id: str,
         signature: Optional[str] = None,
+        gateway_order_id: Optional[str] = None,
     ) -> bool:
         # For mock, payments are valid unless explicitly marked failing
         return not payment_id.startswith("mock_fail_")

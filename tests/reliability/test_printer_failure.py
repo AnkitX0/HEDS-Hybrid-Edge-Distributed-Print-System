@@ -21,7 +21,7 @@ async def test_printer_failure_and_operator_retry():
     """
     async with AsyncSessionLocal() as session:
         shop = (await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))).scalar_one()
-        agent = (await session.execute(select(Agent).where(Agent.shop_id == shop.id))).scalars().first()
+        agent = (await session.execute(select(Agent).where(Agent.name == "campus-agent-01"))).scalar_one()
         operator = (await session.execute(select(User).where(User.email == "operator@campus-xerox.local"))).scalar_one()
 
         doc = Document(

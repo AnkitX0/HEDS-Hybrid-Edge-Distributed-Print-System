@@ -118,10 +118,10 @@ def seed_demo():
             shop_id=shop.id,
             name="Campus Standard Rates",
             paper_size="A4",
-            bw_per_page_cents=200,      # ₹2.00 / page
+            bw_per_page_cents=100,      # ₹1.00 / page base rate
             color_per_page_cents=1000,  # ₹10.00 / page
-            duplex_discount_cents=40,   # ₹0.40 duplex sheet discount
-            minimum_order_cents=200,    # ₹2.00 minimum
+            duplex_discount_cents=0,    # standard per-page policy
+            minimum_order_cents=100,    # ₹1.00 base minimum
             is_active=True,
         )
         session.add(pricing_rule)

@@ -35,6 +35,44 @@ class ShopPublicInfo(BaseModel):
     pricing: Dict[str, Any]
 
 
+# Document & Upload Schemas
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    file_size_bytes: int
+    page_count: int
+    mime_type: str
+
+
+# Pricing Quote Schemas
+class PricingQuoteRequest(BaseModel):
+    document_id: Optional[str] = None
+    document_page_count: Optional[int] = None
+    copies: int = Field(default=1, ge=1, le=100)
+    color_mode: ColorMode = ColorMode.BW
+    duplex: bool = False
+    paper_size: str = "A4"
+    page_range: str = "all"
+
+
+class PricingQuoteResponse(BaseModel):
+    document_page_count: int
+    active_pages: int
+    copies: int
+    color_mode: str
+    duplex: bool
+    paper_size: str
+    sheets_count: int
+    rate_per_page_cents: int
+    raw_total_cents: int
+    duplex_discount_cents: int
+    subtotal_cents: int
+    minimum_order_cents: int
+    final_amount_cents: int
+    currency: str = "INR"
+    formatted_total: str
+
+
 # Student Order Creation & Settings
 class PrintConfigInput(BaseModel):
     copies: int = Field(default=1, ge=1, le=100)

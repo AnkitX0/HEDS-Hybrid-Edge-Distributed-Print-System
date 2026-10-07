@@ -37,16 +37,35 @@ def calculate_sha256(file_bytes: bytes) -> str:
 
 def inspect_and_count_pages(file_bytes: bytes, extension: str) -> int:
     """
-    Count actual pages for PDF or image document.
+    Count actual pages for PDF or image document authoritatively.
+    Validates PDF header, encryption status, and corrupted file states.
     """
     ext = extension.lower()
     if ext == ".pdf":
+        # Check standard PDF magic bytes header
+        if not file_bytes.startswith(b"%PDF-"):
+            raise HEDSException(
+                code="INVALID_DOCUMENT",
+                message="File does not have a valid PDF header (%PDF-). Corrupted or invalid file.",
+            )
         try:
             reader = PdfReader(io.BytesIO(file_bytes))
+            if reader.is_encrypted:
+                try:
+                    decrypted = reader.decrypt("")
+                except Exception:
+                    decrypted = 0
+                if reader.is_encrypted and not decrypted:
+                    raise HEDSException(
+                        code="DOCUMENT_ENCRYPTED",
+                        message="This PDF is password-protected. Please upload an unprotected PDF.",
+                    )
             count = len(reader.pages)
             if count <= 0:
-                raise HEDSException(code="INVALID_DOCUMENT", message="PDF has no valid pages")
+                raise HEDSException(code="INVALID_DOCUMENT", message="PDF has no valid pages.")
             return count
+        except HEDSException:
+            raise
         except Exception as e:
             logger.error(f"Failed to inspect PDF: {e}")
             raise HEDSException(code="INVALID_DOCUMENT", message=f"Corrupted or invalid PDF file: {str(e)}")
@@ -57,7 +76,7 @@ def inspect_and_count_pages(file_bytes: bytes, extension: str) -> int:
             return 1  # Standard image is 1 page
         except Exception as e:
             logger.error(f"Failed to inspect image: {e}")
-            raise HEDSException(code="INVALID_DOCUMENT", message="Corrupted or invalid image file")
+            raise HEDSException(code="INVALID_DOCUMENT", message="Corrupted or invalid image file.")
     else:
         raise HEDSException(code="UNSUPPORTED_FORMAT", message=f"Unsupported file format: {ext}")
 

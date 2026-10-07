@@ -23,15 +23,159 @@ from app.modules.orders.models import (
 )
 from app.modules.queue.models import PrintJob, JobStatus
 from app.api.deps import require_shop_operator, get_authorized_shop
-from app.api.v1.schemas import OrderResponse
+from app.api.v1.schemas import (
+    OrderResponse,
+    DocumentUploadResponse,
+    PricingQuoteRequest,
+    PricingQuoteResponse,
+)
+from app.core.logging import logger
 
 router = APIRouter(tags=["Orders"])
+
+
+@router.post("/shops/{shop_slug}/documents/upload", response_model=DocumentUploadResponse)
+async def upload_shop_document(
+    shop_slug: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 1 of Student Flow:
+    Upload and authoritatively inspect document.
+    Validates MIME type, PDF header, corruption, password protection, and extracts exact page count.
+    """
+    res = await db.execute(
+        select(Shop).where(Shop.slug == shop_slug, Shop.is_active == True)
+    )
+    shop = res.scalar_one_or_none()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found or inactive")
+
+    try:
+        sanitized_name, storage_path, file_size, checksum, page_count = (
+            await document_service.process_upload(
+                file_obj=file.file,
+                original_filename=file.filename or "upload.pdf",
+                declared_mime_type=file.content_type or "application/pdf",
+            )
+        )
+    except Exception as e:
+        logger.error(f"[UPLOAD] Failed to process document upload: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    doc = Document(
+        shop_id=shop.id,
+        original_filename=file.filename or "upload.pdf",
+        sanitized_filename=sanitized_name,
+        storage_path=storage_path,
+        mime_type=file.content_type or "application/pdf",
+        file_size_bytes=file_size,
+        page_count=page_count,
+        checksum_sha256=checksum,
+    )
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    return DocumentUploadResponse(
+        document_id=str(doc.id),
+        filename=doc.original_filename,
+        file_size_bytes=doc.file_size_bytes,
+        page_count=doc.page_count,
+        mime_type=doc.mime_type,
+    )
+
+
+@router.post("/shops/{shop_slug}/pricing/quote", response_model=PricingQuoteResponse)
+async def get_pricing_quote(
+    shop_slug: str,
+    quote_req: PricingQuoteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Calculates authoritative price breakdown based on backend pricing rules
+    and exact document page count.
+    """
+    res = await db.execute(
+        select(Shop)
+        .options(selectinload(Shop.pricing_rules))
+        .where(Shop.slug == shop_slug, Shop.is_active == True)
+    )
+    shop = res.scalar_one_or_none()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found or inactive")
+
+    # Determine authoritative page count
+    page_count = quote_req.document_page_count
+    if quote_req.document_id:
+        doc_res = await db.execute(
+            select(Document).where(
+                Document.id == uuid.UUID(quote_req.document_id),
+                Document.shop_id == shop.id,
+            )
+        )
+        doc = doc_res.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found for this shop")
+        page_count = doc.page_count
+
+    if not page_count or page_count <= 0:
+        raise HTTPException(status_code=400, detail="Valid document_id or positive document_page_count required")
+
+    spec = PrintSpecification(
+        order_id=uuid.uuid4(),
+        copies=max(1, quote_req.copies),
+        color_mode=quote_req.color_mode,
+        duplex=quote_req.duplex,
+        paper_size=quote_req.paper_size.upper(),
+        page_range=quote_req.page_range.strip(),
+        orientation=Orientation.PORTRAIT,
+        scaling=Scaling.FIT,
+    )
+
+    active_rule = next((r for r in shop.pricing_rules if r.is_active), None)
+    if not active_rule:
+        active_rule = PricingRule(
+            shop_id=shop.id,
+            bw_per_page_cents=100,      # ₹1.00 base rate
+            color_per_page_cents=1000,
+            duplex_discount_cents=0,
+            minimum_order_cents=100,    # ₹1.00 minimum
+        )
+        db.add(active_rule)
+        await db.flush()
+
+    breakdown = pricing_engine.calculate_price(
+        document_page_count=page_count,
+        spec=spec,
+        rule=active_rule,
+    )
+
+    return PricingQuoteResponse(
+        document_page_count=page_count,
+        active_pages=breakdown["active_pages"],
+        copies=breakdown["copies"],
+        color_mode=breakdown["color_mode"],
+        duplex=breakdown["duplex"],
+        paper_size=breakdown["paper_size"],
+        sheets_count=breakdown["sheets_count"],
+        rate_per_page_cents=breakdown["rate_per_page_cents"],
+        raw_total_cents=breakdown["raw_total_cents"],
+        duplex_discount_cents=breakdown["duplex_discount_cents"],
+        subtotal_cents=breakdown["subtotal_cents"],
+        minimum_order_cents=breakdown["minimum_order_cents"],
+        final_amount_cents=breakdown["final_amount_cents"],
+        currency=breakdown["currency"],
+        formatted_total=breakdown["formatted_total"],
+    )
 
 
 @router.post("/shops/{shop_slug}/orders", response_model=OrderResponse)
 async def create_student_order(
     shop_slug: str,
-    file: UploadFile = File(...),
+    document_id: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
     copies: int = Form(1),
     color_mode: str = Form("BW"),
     duplex: bool = Form(False),
@@ -43,7 +187,7 @@ async def create_student_order(
 ):
     """
     Primary Student Entrypoint:
-    Validates file, inspects page count, calculates authoritative price,
+    Validates file or accepts pre-inspected document_id, calculates authoritative price,
     and creates order in CREATED state with a secure guest token.
     """
     # Find shop
@@ -62,30 +206,48 @@ async def create_student_order(
             detail="This print shop's queue is temporarily paused by the operator.",
         )
 
-    # Validate and process uploaded document
-    try:
-        sanitized_name, storage_path, file_size, checksum, page_count = (
-            await document_service.process_upload(
-                file_obj=file.file,
-                original_filename=file.filename or "upload.pdf",
-                declared_mime_type=file.content_type or "application/pdf",
+    doc = None
+    if document_id:
+        doc_res = await db.execute(
+            select(Document).where(
+                Document.id == uuid.UUID(document_id),
+                Document.shop_id == shop.id,
             )
         )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        doc = doc_res.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found for this shop")
+        page_count = doc.page_count
+    elif file:
+        # Validate and process uploaded document
+        try:
+            sanitized_name, storage_path, file_size, checksum, page_count = (
+                await document_service.process_upload(
+                    file_obj=file.file,
+                    original_filename=file.filename or "upload.pdf",
+                    declared_mime_type=file.content_type or "application/pdf",
+                )
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-    doc = Document(
-        shop_id=shop.id,
-        original_filename=file.filename or "upload.pdf",
-        sanitized_filename=sanitized_name,
-        storage_path=storage_path,
-        mime_type=file.content_type or "application/pdf",
-        file_size_bytes=file_size,
-        page_count=page_count,
-        checksum_sha256=checksum,
-    )
-    db.add(doc)
-    await db.flush()
+        doc = Document(
+            shop_id=shop.id,
+            original_filename=file.filename or "upload.pdf",
+            sanitized_filename=sanitized_name,
+            storage_path=storage_path,
+            mime_type=file.content_type or "application/pdf",
+            file_size_bytes=file_size,
+            page_count=page_count,
+            checksum_sha256=checksum,
+        )
+        db.add(doc)
+        await db.flush()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either document_id or file must be provided.",
+        )
 
     # Create PrintSpecification
     spec = PrintSpecification(
@@ -102,13 +264,13 @@ async def create_student_order(
     # Find active pricing rule
     active_rule = next((r for r in shop.pricing_rules if r.is_active), None)
     if not active_rule:
-        # Default fallback rule if none seeded
+        # Default fallback rule if none seeded: ₹1/page
         active_rule = PricingRule(
             shop_id=shop.id,
-            bw_per_page_cents=200,
+            bw_per_page_cents=100,      # ₹1.00 / page
             color_per_page_cents=1000,
-            duplex_discount_cents=50,
-            minimum_order_cents=200,
+            duplex_discount_cents=0,
+            minimum_order_cents=100,    # ₹1.00 minimum
         )
         db.add(active_rule)
         await db.flush()

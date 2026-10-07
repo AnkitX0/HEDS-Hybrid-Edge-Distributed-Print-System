@@ -131,10 +131,10 @@ def seed():
             shop_id=shop1.id,
             name="Standard Campus Rates",
             paper_size="A4",
-            bw_per_page_cents=200,      # ₹2.00
+            bw_per_page_cents=100,      # ₹1.00
             color_per_page_cents=1000,  # ₹10.00
-            duplex_discount_cents=50,   # ₹0.50 discount per duplex sheet
-            minimum_order_cents=200,
+            duplex_discount_cents=0,    # standard per-page policy
+            minimum_order_cents=100,    # ₹1.00 base minimum
             is_active=True,
         )
         pr2 = PricingRule(

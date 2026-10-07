@@ -210,19 +210,19 @@ async def trigger_demo_print(db: AsyncSession = Depends(get_db)):
     # 4. Authoritative Pricing
     active_rule = next((r for r in shop.pricing_rules if r.is_active), None)
     if not active_rule:
-        rate_cents = 540  # ₹5.40 fallback
+        rate_cents = doc.page_count * 100  # ₹1.00 / page fallback
         breakdown = {
-            "active_pages": 3,
+            "active_pages": doc.page_count,
             "copies": 1,
             "color_mode": "BW",
             "duplex": True,
             "final_amount_cents": rate_cents,
-            "formatted_total": "₹5.40",
+            "formatted_total": f"₹{rate_cents / 100:.2f}",
             "currency": "INR",
         }
     else:
         breakdown = pricing_engine.calculate_price(
-            document_page_count=3,
+            document_page_count=doc.page_count,
             spec=spec,
             rule=active_rule,
         )

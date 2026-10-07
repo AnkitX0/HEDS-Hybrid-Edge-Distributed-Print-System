@@ -175,7 +175,9 @@ async def get_shop_dashboard(
     # Printers & Agents
     printers_res = await db.execute(select(Printer).where(Printer.shop_id == shop.id))
     printers = printers_res.scalars().all()
-    online_printers = sum(1 for p in printers if p.status == PrinterStatus.ONLINE)
+    online_printers = sum(
+        1 for p in printers if p.status in [PrinterStatus.ONLINE, PrinterStatus.BUSY]
+    )
 
     agents_res = await db.execute(select(Agent).where(Agent.shop_id == shop.id))
     agents = agents_res.scalars().all()

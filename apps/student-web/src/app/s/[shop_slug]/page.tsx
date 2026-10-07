@@ -44,7 +44,14 @@ export default function StudentShopPage() {
   const shopSlug = params.shop_slug as string;
 
   const [file, setFile] = useState<File | null>(null);
-  const [pageCount, setPageCount] = useState<number>(3);
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>("");
+  const [fileSize, setFileSize] = useState<number>(0);
+  const [pageCount, setPageCount] = useState<number | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isCalculatingQuote, setIsCalculatingQuote] = useState<boolean>(false);
+  const [quoteBreakdown, setQuoteBreakdown] = useState<any>(null);
+
   const [copies, setCopies] = useState<number>(1);
   const [colorMode, setColorMode] = useState<"BW" | "COLOR">("BW");
   const [duplex, setDuplex] = useState<boolean>(false);
@@ -73,22 +80,35 @@ export default function StudentShopPage() {
     refetchInterval: 5000,
   });
 
-  const loadSampleDocument = async () => {
+  const requestPricingQuote = async (
+    docId: string,
+    docPages: number,
+    optCopies = copies,
+    optColor = colorMode,
+    optDuplex = duplex,
+    optPaper = paperSize,
+    optRange = pageRangeMode === "custom" && customPageRange.trim() ? customPageRange.trim() : "all"
+  ) => {
+    setIsCalculatingQuote(true);
     try {
-      const res = await fetch("/sample-print.pdf");
-      const blob = await res.blob();
-      const sampleFile = new File([blob], "sample-assignment.pdf", {
-        type: "application/pdf",
+      const q = await apiClient.post<any>(`/api/v1/shops/${shopSlug}/pricing/quote`, {
+        document_id: docId,
+        document_page_count: docPages,
+        copies: optCopies,
+        color_mode: optColor,
+        duplex: optDuplex,
+        paper_size: optPaper,
+        page_range: optRange,
       });
-      setFile(sampleFile);
-      setPageCount(3);
-      setErrorMessage(null);
-    } catch (e) {
-      console.error("Failed to load sample document", e);
+      setQuoteBreakdown(q);
+    } catch (e: any) {
+      console.error("Quote calculation error:", e);
+    } finally {
+      setIsCalculatingQuote(false);
     }
   };
 
-  const validateAndSetFile = (selectedFile: File) => {
+  const uploadAndInspectFile = async (selectedFile: File) => {
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
     const validExtensions = ["pdf", "png", "jpg", "jpeg"];
 
@@ -105,13 +125,62 @@ export default function StudentShopPage() {
 
     setErrorMessage(null);
     setFile(selectedFile);
-    // Default estimated page count until backend server parses authoritative PDF
-    setPageCount(3);
+    setFileName(selectedFile.name);
+    setFileSize(selectedFile.size);
+    setIsAnalyzing(true);
+    setDocumentId(null);
+    setPageCount(null);
+    setQuoteBreakdown(null);
+
+    try {
+      const uploadData = new FormData();
+      uploadData.append("file", selectedFile);
+
+      const res = await apiClient.upload<any>(
+        `/api/v1/shops/${shopSlug}/documents/upload`,
+        uploadData
+      );
+
+      setDocumentId(res.document_id);
+      setPageCount(res.page_count);
+      setFileName(res.filename);
+      setFileSize(res.file_size_bytes);
+      setIsAnalyzing(false);
+
+      // Trigger authoritative quote immediately
+      await requestPricingQuote(res.document_id, res.page_count);
+    } catch (err: any) {
+      setIsAnalyzing(false);
+      setFile(null);
+      setDocumentId(null);
+      setPageCount(null);
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message || "Unable to read this PDF. Please upload a valid, unprotected PDF.");
+      } else {
+        setErrorMessage("Unable to read this document. Please ensure it is a valid PDF.");
+      }
+    }
+  };
+
+  const loadSampleDocument = async () => {
+    try {
+      setIsAnalyzing(true);
+      setErrorMessage(null);
+      const res = await fetch("/sample-print.pdf");
+      const blob = await res.blob();
+      const sampleFile = new File([blob], "sample-assignment.pdf", {
+        type: "application/pdf",
+      });
+      await uploadAndInspectFile(sampleFile);
+    } catch (e) {
+      setIsAnalyzing(false);
+      setErrorMessage("Failed to load sample document.");
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      validateAndSetFile(e.target.files[0]);
+      uploadAndInspectFile(e.target.files[0]);
     }
   };
 
@@ -128,31 +197,25 @@ export default function StudentShopPage() {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      validateAndSetFile(e.dataTransfer.files[0]);
+      uploadAndInspectFile(e.dataTransfer.files[0]);
     }
   };
 
-  // Preview estimate calculation in Rupees
-  const calculateEstimatedTotal = () => {
-    if (!shop || !shop.pricing) return 0;
-    const baseRate =
-      colorMode === "COLOR"
-        ? shop.pricing.color_per_page_cents
-        : shop.pricing.bw_per_page_cents;
-    const effectivePages = file ? pageCount : 3;
-    const rawTotal = baseRate * effectivePages * copies;
-    const duplexDiscount = duplex
-      ? (shop.pricing.duplex_discount_cents || 0) * copies
-      : 0;
-    const subtotal = Math.max(
-      shop.pricing.minimum_order_cents || 0,
-      rawTotal - duplexDiscount
-    );
-    return subtotal / 100;
+  // Helper to re-quote when options change
+  const handleOptionChange = (
+    newCopies = copies,
+    newColor = colorMode,
+    newDuplex = duplex,
+    newPaper = paperSize,
+    newRange = pageRangeMode === "custom" && customPageRange.trim() ? customPageRange.trim() : "all"
+  ) => {
+    if (documentId && pageCount) {
+      requestPricingQuote(documentId, pageCount, newCopies, newColor, newDuplex, newPaper, newRange);
+    }
   };
 
   const handleSubmitOrder = async () => {
-    if (!file) {
+    if (!documentId) {
       setErrorMessage("Please select or upload a document first.");
       return;
     }
@@ -162,7 +225,7 @@ export default function StudentShopPage() {
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("document_id", documentId);
       formData.append("copies", copies.toString());
       formData.append("color_mode", colorMode);
       formData.append("duplex", duplex.toString());
@@ -299,9 +362,8 @@ export default function StudentShopPage() {
     );
   }
 
-  const bwRate = ((shop.pricing?.bw_per_page_cents || 200) / 100).toFixed(2);
+  const bwRate = ((shop.pricing?.bw_per_page_cents || 100) / 100).toFixed(2);
   const colorRate = ((shop.pricing?.color_per_page_cents || 1000) / 100).toFixed(2);
-  const estimatedTotal = calculateEstimatedTotal();
 
   return (
     <div className="space-y-4 pb-8">
@@ -382,7 +444,17 @@ export default function StudentShopPage() {
           onChange={handleFileChange}
         />
 
-        {!file ? (
+        {isAnalyzing ? (
+          <div className="p-6 rounded-xl border border-indigo-200 bg-indigo-50/50 flex flex-col items-center justify-center gap-2 text-center">
+            <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-bold text-indigo-900">
+              Analyzing document...
+            </p>
+            <p className="text-[11px] text-indigo-600">
+              Verifying PDF format and counting actual pages authoritatively
+            </p>
+          </div>
+        ) : !file || !documentId ? (
           <div
             onClick={() => fileInputRef.current?.click()}
             onDragOver={handleDragOver}
@@ -415,7 +487,7 @@ export default function StudentShopPage() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                Use Sample PDF (3 pages)
+                Use Sample PDF
               </button>
             </div>
           </div>
@@ -427,17 +499,20 @@ export default function StudentShopPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-slate-900 truncate">
-                  {file.name}
+                  {fileName}
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  {pageCount} {pageCount === 1 ? "page" : "pages"} &bull;{" "}
-                  {(file.size / 1024).toFixed(0)} KB
+                <p className="text-[11px] text-slate-600 font-medium">
+                  <span className="font-bold text-indigo-700">{pageCount} {pageCount === 1 ? "page" : "pages"} detected</span> &bull;{" "}
+                  {(fileSize / 1024).toFixed(0)} KB
                 </p>
               </div>
             </div>
             <button
               onClick={() => {
                 setFile(null);
+                setDocumentId(null);
+                setPageCount(null);
+                setQuoteBreakdown(null);
                 if (fileInputRef.current) fileInputRef.current.value = "";
               }}
               className="px-2.5 py-1 text-[11px] font-semibold text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-md hover:bg-red-50 transition-colors"
@@ -474,7 +549,10 @@ export default function StudentShopPage() {
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => setColorMode("BW")}
+              onClick={() => {
+                setColorMode("BW");
+                handleOptionChange(copies, "BW", duplex, paperSize);
+              }}
               className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                 colorMode === "BW"
                   ? "bg-slate-900 text-white border-slate-900 shadow-sm"
@@ -486,7 +564,10 @@ export default function StudentShopPage() {
             </button>
             <button
               type="button"
-              onClick={() => setColorMode("COLOR")}
+              onClick={() => {
+                setColorMode("COLOR");
+                handleOptionChange(copies, "COLOR", duplex, paperSize);
+              }}
               className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                 colorMode === "COLOR"
                   ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
@@ -510,7 +591,10 @@ export default function StudentShopPage() {
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => setDuplex(false)}
+              onClick={() => {
+                setDuplex(false);
+                handleOptionChange(copies, colorMode, false, paperSize);
+              }}
               className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                 !duplex
                   ? "bg-slate-900 text-white border-slate-900 shadow-sm"
@@ -521,7 +605,10 @@ export default function StudentShopPage() {
             </button>
             <button
               type="button"
-              onClick={() => setDuplex(true)}
+              onClick={() => {
+                setDuplex(true);
+                handleOptionChange(copies, colorMode, true, paperSize);
+              }}
               className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                 duplex
                   ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
@@ -541,7 +628,11 @@ export default function StudentShopPage() {
             <div className="flex items-center border border-slate-200 rounded-xl bg-white overflow-hidden">
               <button
                 type="button"
-                onClick={() => setCopies(Math.max(1, copies - 1))}
+                onClick={() => {
+                  const newC = Math.max(1, copies - 1);
+                  setCopies(newC);
+                  handleOptionChange(newC, colorMode, duplex, paperSize);
+                }}
                 className="w-10 h-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 font-bold text-sm active:bg-slate-200"
               >
                 &minus;
@@ -551,7 +642,11 @@ export default function StudentShopPage() {
               </span>
               <button
                 type="button"
-                onClick={() => setCopies(copies + 1)}
+                onClick={() => {
+                  const newC = copies + 1;
+                  setCopies(newC);
+                  handleOptionChange(newC, colorMode, duplex, paperSize);
+                }}
                 className="w-10 h-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 font-bold text-sm active:bg-slate-200"
               >
                 +
@@ -564,7 +659,10 @@ export default function StudentShopPage() {
             <label className="text-xs font-medium text-slate-700">Paper Size</label>
             <select
               value={paperSize}
-              onChange={(e) => setPaperSize(e.target.value)}
+              onChange={(e) => {
+                setPaperSize(e.target.value);
+                handleOptionChange(copies, colorMode, duplex, e.target.value);
+              }}
               className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-600"
             >
               <option value="A4">A4 (Standard)</option>
@@ -580,7 +678,10 @@ export default function StudentShopPage() {
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => setPageRangeMode("all")}
+              onClick={() => {
+                setPageRangeMode("all");
+                handleOptionChange(copies, colorMode, duplex, paperSize, "all");
+              }}
               className={`py-1.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
                 pageRangeMode === "all"
                   ? "bg-slate-900 text-white border-slate-900"
@@ -606,7 +707,10 @@ export default function StudentShopPage() {
               type="text"
               placeholder="e.g. 1-3, 5"
               value={customPageRange}
-              onChange={(e) => setCustomPageRange(e.target.value)}
+              onChange={(e) => {
+                setCustomPageRange(e.target.value);
+                handleOptionChange(copies, colorMode, duplex, paperSize, e.target.value);
+              }}
               className="w-full h-9 px-3 mt-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-600"
             />
           )}
@@ -621,52 +725,72 @@ export default function StudentShopPage() {
               Authoritative Total
             </span>
             <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-2xl font-black tracking-tight">
-                ₹{estimatedTotal.toFixed(2)}
+              <span className="text-2xl font-black tracking-tight font-mono">
+                {isCalculatingQuote ? (
+                  <span className="text-base text-slate-400 font-normal">Calculating...</span>
+                ) : quoteBreakdown ? (
+                  quoteBreakdown.formatted_total
+                ) : (
+                  "—"
+                )}
               </span>
-              <span className="text-xs text-slate-400">INR</span>
+              {quoteBreakdown && !isCalculatingQuote && (
+                <span className="text-xs text-slate-400">INR</span>
+              )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPriceBreakdown(!showPriceBreakdown)}
-            className="flex items-center gap-1 text-[11px] text-indigo-300 hover:text-indigo-200 font-medium"
-          >
-            <span>Breakdown</span>
-            {showPriceBreakdown ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-          </button>
+          {quoteBreakdown && (
+            <button
+              type="button"
+              onClick={() => setShowPriceBreakdown(!showPriceBreakdown)}
+              className="flex items-center gap-1 text-[11px] text-indigo-300 hover:text-indigo-200 font-medium"
+            >
+              <span>Breakdown</span>
+              {showPriceBreakdown ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
         </div>
 
-        {showPriceBreakdown && (
+        {showPriceBreakdown && quoteBreakdown && (
           <div className="pt-2 border-t border-slate-800 text-xs space-y-1 font-mono text-slate-300">
             <div className="flex justify-between">
-              <span>Pages & Copies:</span>
+              <span>Authoritative Pages:</span>
               <span>
-                {pageCount}p &times; {copies} {copies === 1 ? "copy" : "copies"}
+                {quoteBreakdown.active_pages} {quoteBreakdown.active_pages === 1 ? "page" : "pages"} (of {quoteBreakdown.document_page_count})
               </span>
             </div>
             <div className="flex justify-between">
-              <span>Mode Rate:</span>
-              <span>₹{colorMode === "COLOR" ? colorRate : bwRate} / page</span>
+              <span>Copies:</span>
+              <span>
+                {quoteBreakdown.copies} {quoteBreakdown.copies === 1 ? "copy" : "copies"}
+              </span>
             </div>
-            {duplex && (
+            <div className="flex justify-between">
+              <span>Rate per page:</span>
+              <span>₹{(quoteBreakdown.rate_per_page_cents / 100).toFixed(2)}</span>
+            </div>
+            {quoteBreakdown.duplex_discount_cents > 0 && (
               <div className="flex justify-between text-emerald-400">
                 <span>Duplex Discount:</span>
-                <span>Active</span>
+                <span>-₹{(quoteBreakdown.duplex_discount_cents / 100).toFixed(2)}</span>
               </div>
             )}
+            <div className="flex justify-between pt-1 border-t border-slate-800 font-bold text-white">
+              <span>Total Billable:</span>
+              <span>{quoteBreakdown.formatted_total}</span>
+            </div>
           </div>
         )}
 
         <button
           onClick={handleSubmitOrder}
-          disabled={submitting || !file || shop.is_queue_paused}
+          disabled={submitting || !documentId || shop.is_queue_paused || isAnalyzing}
           className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all ${
-            submitting || !file || shop.is_queue_paused
+            submitting || !documentId || shop.is_queue_paused || isAnalyzing
               ? "bg-slate-800 text-slate-500 cursor-not-allowed"
               : "bg-indigo-500 hover:bg-indigo-400 text-white active:scale-[0.99]"
           }`}
@@ -678,11 +802,15 @@ export default function StudentShopPage() {
             </>
           ) : shop.is_queue_paused ? (
             <span>Queue Temporarily Paused</span>
-          ) : !file ? (
+          ) : isAnalyzing ? (
+            <span>Analyzing Document...</span>
+          ) : !documentId ? (
             <span>Upload Document to Continue</span>
+          ) : isCalculatingQuote ? (
+            <span>Calculating Price...</span>
           ) : (
             <>
-              <span>Pay ₹{estimatedTotal.toFixed(2)} & Print</span>
+              <span>Pay {quoteBreakdown?.formatted_total || `₹${((quoteBreakdown?.final_amount_cents || 0) / 100).toFixed(2)}`} & Print</span>
               <Sparkles className="w-4 h-4" />
             </>
           )}

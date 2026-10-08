@@ -26,15 +26,29 @@ async def confirm_order_pickup(
             order_uuid = uuid.UUID(payload.order_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid order_id UUID")
-    elif payload.order_number:
-        from sqlalchemy import select
+    elif payload.order_number or payload.token:
+        from sqlalchemy import select, or_
         from app.modules.orders.models import Order
-        norm_number = payload.order_number.strip().upper()
-        res = await db.execute(select(Order).where(Order.order_number == norm_number))
-        found_order = res.scalar_one_or_none()
+        token_str = (payload.order_number or payload.token).strip().upper()
+        clean_num = token_str.lstrip("#")
+        stmt = (
+            select(Order)
+            .where(
+                or_(
+                    Order.order_number == token_str,
+                    Order.order_number == clean_num,
+                    Order.order_number == f"ORD-{clean_num}",
+                    Order.order_number.ilike(f"%{clean_num}"),
+                )
+            )
+            .order_by(Order.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        found_order = res.scalars().first()
         if not found_order:
-            raise HTTPException(status_code=404, detail=f"Order '{payload.order_number}' not found")
+            raise HTTPException(status_code=404, detail=f"Order '{token_str}' not found")
         order_uuid = found_order.id
+
     else:
         raise HTTPException(status_code=400, detail="Either order_id or order_number must be provided")
 

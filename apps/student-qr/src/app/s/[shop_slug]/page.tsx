@@ -65,12 +65,20 @@ export default function ShopStorefrontPage() {
   const uploadSectionRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Print Configuration State
-  const [file, setFile] = useState<File | null>(null);
+  // Print Configuration State & Multi-File State
+  interface DocItem {
+    id: string;
+    filename: string;
+    page_count: number;
+    file_size_bytes: number;
+    mime_type?: string;
+    error?: string;
+  }
+
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [documents, setDocuments] = useState<DocItem[]>([]);
   const [documentId, setDocumentId] = useState<string | null>(null);
-  const [filename, setFilename] = useState<string>("");
-  const [fileSizeBytes, setFileSizeBytes] = useState<number>(0);
-  const [pageCount, setPageCount] = useState<number>(0);
+  const [totalPageCount, setTotalPageCount] = useState<number>(0);
 
   const [colorMode, setColorMode] = useState<"BW" | "COLOR">("BW");
   const [duplex, setDuplex] = useState<boolean>(false);
@@ -146,52 +154,110 @@ export default function ShopStorefrontPage() {
     uploadSectionRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleFileSelect = async (selected: File) => {
-    const ext = selected.name.split(".").pop()?.toLowerCase();
-    if (ext !== "pdf") {
-      setErrorMessage("Please select a PDF document. Other formats are currently not supported.");
-      return;
-    }
-    if (selected.size > 50 * 1024 * 1024) {
-      setErrorMessage("File exceeds the maximum 50 MB limit.");
+  const uploadFilesToServer = async (filesToUpload: File[]) => {
+    if (filesToUpload.length === 0) {
+      setDocuments([]);
+      setDocumentId(null);
+      setTotalPageCount(0);
+      setAuthoritativeQuote(null);
       return;
     }
 
-    setErrorMessage(null);
-    setPaymentFailed(false);
-    setFile(selected);
-    setFilename(selected.name);
-    setFileSizeBytes(selected.size);
     setIsUploading(true);
+    setErrorMessage(null);
 
     try {
       const formData = new FormData();
-      formData.append("file", selected);
+      filesToUpload.forEach((f) => {
+        formData.append("files", f);
+      });
 
-      const res = await apiClient.upload<UploadResponse>(
-        `/api/v1/shops/${shopSlug}/documents/upload`,
+      const res = await apiClient.upload<any>(
+        `/api/v1/shops/${shopSlug}/documents/upload-multiple`,
         formData
       );
 
       setDocumentId(res.document_id);
-      setPageCount(res.page_count);
-      setFilename(res.filename || selected.name);
+      setTotalPageCount(res.total_pages);
+      const docItems: DocItem[] = (res.documents || []).map((d: any, idx: number) => ({
+        id: `${d.filename}-${idx}`,
+        filename: d.filename,
+        page_count: d.page_count,
+        file_size_bytes: d.file_size_bytes,
+        mime_type: d.mime_type,
+      }));
+      setDocuments(docItems);
     } catch (e: any) {
-      setErrorMessage("We couldn't read this document. Please upload another PDF.");
-      setFile(null);
-      setDocumentId(null);
-      setPageCount(0);
+      setErrorMessage(e.message || "Failed to process uploaded documents. Please check file formats.");
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleClearFile = () => {
-    setFile(null);
+  const handleFilesSelect = async (newFiles: FileList | File[]) => {
+    const allowedExts = ["pdf", "doc", "docx", "png", "jpg", "jpeg", "webp"];
+    const fileArray = Array.from(newFiles);
+
+    // Limit check: max 10 files
+    const combined = [...selectedFiles, ...fileArray];
+    if (combined.length > 10) {
+      setErrorMessage("Maximum 10 files allowed. Please select fewer documents.");
+      return;
+    }
+
+    // Filter invalid extensions
+    const validFiles: File[] = [];
+    let hasInvalid = false;
+    let totalSize = 0;
+
+    for (const f of combined) {
+      const ext = f.name.split(".").pop()?.toLowerCase();
+      if (!ext || !allowedExts.includes(ext)) {
+        hasInvalid = true;
+        continue;
+      }
+      if (f.size > 50 * 1024 * 1024) {
+        setErrorMessage(`File '${f.name}' exceeds the 50MB individual file limit.`);
+        return;
+      }
+      totalSize += f.size;
+      validFiles.push(f);
+    }
+
+    if (totalSize > 100 * 1024 * 1024) {
+      setErrorMessage("Combined files exceed the 100MB total limit.");
+      return;
+    }
+
+    if (hasInvalid) {
+      setErrorMessage("Some files had unsupported extensions and were skipped. Allowed: PDF, Word, Images.");
+    } else {
+      setErrorMessage(null);
+    }
+
+    setSelectedFiles(validFiles);
+    await uploadFilesToServer(validFiles);
+  };
+
+  const handleRemoveDocument = async (indexToRemove: number) => {
+    const updatedFiles = selectedFiles.filter((_, idx) => idx !== indexToRemove);
+    setSelectedFiles(updatedFiles);
+    if (updatedFiles.length === 0) {
+      setDocuments([]);
+      setDocumentId(null);
+      setTotalPageCount(0);
+      setAuthoritativeQuote(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } else {
+      await uploadFilesToServer(updatedFiles);
+    }
+  };
+
+  const handleClearAllFiles = () => {
+    setSelectedFiles([]);
+    setDocuments([]);
     setDocumentId(null);
-    setFilename("");
-    setFileSizeBytes(0);
-    setPageCount(0);
+    setTotalPageCount(0);
     setAuthoritativeQuote(null);
     setErrorMessage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -248,6 +314,7 @@ export default function ShopStorefrontPage() {
       setIsSubmitting(false);
     }
   };
+
 
   if (isShopLoading) {
     return (
@@ -315,7 +382,7 @@ export default function ShopStorefrontPage() {
         </div>
 
         {/* Action Button */}
-        {!file && (
+        {documents.length === 0 && (
           <div className="mt-3.5 flex items-center gap-2">
             <Button onClick={scrollToUpload} className="flex-1" size="md">
               Start Printing
@@ -332,75 +399,132 @@ export default function ShopStorefrontPage() {
         )}
       </Card>
 
-      {/* SCREEN 2: UPLOAD DOCUMENT */}
+      {/* SCREEN 2: UPLOAD DOCUMENTS */}
       <div ref={uploadSectionRef} className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-500">
-            Step 1: Upload Document
+            Step 1: Upload Documents
           </h2>
-          {file && (
+          {documents.length > 0 && (
             <button
-              onClick={handleClearFile}
+              onClick={handleClearAllFiles}
               className="text-[11px] text-rose-600 hover:text-rose-700 flex items-center gap-1 font-medium"
             >
-              <Trash2 className="w-3 h-3" /> Change file
+              <Trash2 className="w-3 h-3" /> Clear all
             </button>
           )}
         </div>
 
-        {!file ? (
+        {/* Large Touch Dropzone */}
+        {documents.length === 0 ? (
           <div
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
-              if (e.dataTransfer.files?.[0]) handleFileSelect(e.dataTransfer.files[0]);
+              if (e.dataTransfer.files?.length) handleFilesSelect(e.dataTransfer.files);
             }}
             className="border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/70 hover:bg-blue-50/30 rounded-lg p-6 text-center cursor-pointer transition-colors"
           >
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,application/pdf"
+              multiple
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
               className="hidden"
               onChange={(e) => {
-                if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
+                if (e.target.files?.length) handleFilesSelect(e.target.files);
               }}
             />
             <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto mb-2.5">
               <UploadCloud className="w-6 h-6" />
             </div>
             <p className="text-sm font-semibold text-slate-900">
-              {isUploading ? "Reading document..." : "Choose PDF or drag & drop"}
+              {isUploading ? "Reading & counting pages..." : "+ Add documents"}
             </p>
-            <p className="text-xs text-slate-500 mt-1">PDF documents up to 50 MB</p>
+            <p className="text-xs text-slate-500 mt-1">Supported: PDF &bull; Word &bull; Images (Max 10 files)</p>
           </div>
         ) : (
-          /* File Uploaded & Authoritatively Inspected State */
-          <Card padding="md" className="border-blue-200 bg-blue-50/30">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-md bg-blue-600 text-white flex items-center justify-center shrink-0">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-slate-900 truncate">{filename}</p>
-                <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono text-slate-500">
-                  <span className="font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">
-                    {pageCount} {pageCount === 1 ? "page" : "pages"}
-                  </span>
-                  <span>&bull;</span>
-                  <span>{(fileSizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
-                </div>
-              </div>
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          /* Multi-File Selected Documents List */
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-medium text-slate-700">
+              <span>Selected Documents ({documents.length}/10)</span>
+              {documents.length < 10 && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-blue-600 font-semibold hover:underline flex items-center gap-1"
+                >
+                  + Add more
+                </button>
+              )}
             </div>
-          </Card>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) handleFilesSelect(e.target.files);
+              }}
+            />
+
+            <div className="space-y-2">
+              {documents.map((doc, idx) => {
+                const perPageRate = (colorMode === "COLOR" ? (shop.pricing?.color_per_page_cents || 1000) : (shop.pricing?.bw_per_page_cents || 100)) / 100;
+                const estDocPrice = `₹${(doc.page_count * perPageRate).toFixed(2)}`;
+
+                return (
+                  <div
+                    key={doc.id || idx}
+                    className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between gap-3 shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-8 h-8 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-900 truncate">{doc.filename}</p>
+                        <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                          <span className="font-semibold text-blue-700">{doc.page_count} {doc.page_count === 1 ? "page" : "pages"}</span>
+                          {" &bull; "}
+                          <span>{estDocPrice}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDocument(idx)}
+                      className="text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded transition-colors shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* TOTAL STRIP */}
+            <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-lg flex items-center justify-between font-mono text-xs">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-blue-800 block">TOTAL</span>
+                <span className="font-bold text-slate-900">{totalPageCount} {totalPageCount === 1 ? "page" : "pages"}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] uppercase font-bold text-blue-800 block">AMOUNT</span>
+                <span className="text-base font-extrabold text-blue-700">{totalDisplay}</span>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* SCREEN 3: PRINT SETTINGS & PRICE (Visible once document is uploaded) */}
-      {file && (
+      {/* SCREEN 3: PRINT SETTINGS & PRICE (Visible once documents are uploaded) */}
+      {documents.length > 0 && (
         <div className="space-y-4 pt-1">
+
           <div className="space-y-3">
             <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-500">
               Step 2: Print Settings
@@ -463,7 +587,7 @@ export default function ShopStorefrontPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-900">Page Range</span>
                 <span className="text-[10px] font-mono text-slate-500">
-                  {pageRangeMode === "all" ? `All ${pageCount} pages` : "Custom"}
+                  {pageRangeMode === "all" ? `All ${totalPageCount} pages` : "Custom"}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
@@ -476,7 +600,7 @@ export default function ShopStorefrontPage() {
                       : "bg-transparent border-slate-200 text-slate-600"
                   }`}
                 >
-                  All pages ({pageCount})
+                  All pages ({totalPageCount})
                 </button>
                 <button
                   type="button"
@@ -512,7 +636,13 @@ export default function ShopStorefrontPage() {
               <div className="flex justify-between text-slate-600">
                 <span>Active Pages</span>
                 <span className="font-mono font-medium text-slate-900">
-                  {authoritativeQuote ? authoritativeQuote.active_pages : pageCount} pages
+                  {authoritativeQuote ? authoritativeQuote.active_pages : totalPageCount} pages
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Documents</span>
+                <span className="font-mono font-medium text-slate-900">
+                  {documents.length} {documents.length === 1 ? "file" : "files"}
                 </span>
               </div>
               <div className="flex justify-between text-slate-600">
@@ -521,6 +651,7 @@ export default function ShopStorefrontPage() {
                   {copies} &times; {colorMode === "COLOR" ? "Color" : "B&W"} ({duplex ? "Double" : "Single"})
                 </span>
               </div>
+
               <div className="flex justify-between text-slate-600">
                 <span>Authoritative Rate</span>
                 <span className="font-mono font-medium text-slate-900">

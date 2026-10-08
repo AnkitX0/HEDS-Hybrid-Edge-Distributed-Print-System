@@ -228,27 +228,88 @@ An honest evaluation of the project's engineering milestones:
 
 | Component | Status | Details |
 |---|:---:|---|
-| **Core Architecture & State Machine** | **Implemented** | Strict transition enforcement, audit logging, order lifecycle. |
-| **Student Web Experience** | **Implemented** | Mobile-first zero-login storefront, file upload, settings, price preview, live tracking. |
-| **Shopkeeper Dashboard** | **Implemented** | Modern POS-style console, currently printing hero card, queue, pickup terminal, printer health. |
-| **Cloud Queue & Leasing** | **Implemented** | PostgreSQL `FOR UPDATE SKIP LOCKED`, capability-aware matching, lease expiration reconciler. |
-| **Edge Print Daemon** | **Implemented** | Python daemon, outbound HTTPS client, SQLite durable queue, heartbeat telemetry. |
-| **Mock Printing Simulation** | **Implemented** | Real-time page-by-page progress simulation, failure injection hooks. |
-| **CUPS / IPP Driver Layer** | **Implemented** | pycups bindings & CLI fallback; *Hardware qualification pending*. |
-| **Payment Integration** | **Sandbox & Mock Verified** | Authoritative pricing engine, Razorpay cryptographic verification endpoint, nested webhook processing; *Live merchant production keys pending*. |
-| **Pickup Station & Security** | **Implemented & Rate-Limited** | 6-digit OTP generation, PBKDF2/SHA-256 salted verification, brute-force rate limiter (5 max attempts). |
-| **Automated Test Suite** | **34/34 Passing** | E2E, reliability, concurrency, cryptographic payment verification, state machine, and adapter tests pass cleanly. |
-| **Production Staging Deployment** | **Pending** | Pending cloud staging cluster, domain routing, and physical multi-printer lab test. |
+| **Core Architecture & State Machine** | **Verified** | Strict transition enforcement, audit logging, `PICKUP_READY` -> `COMPLETED` counter lifecycle, idempotent pickups. |
+| **Multi-File Document Pipeline** | **Verified** | Support for PDF, DOCX/DOC (headless LibreOffice), and PNG/JPG/WEBP (PIL); max 10 files, 100MB total; authoritative page count sum. |
+| **PDF Receipt Engine** | **Verified** | Authoritative backend ReportLab A5 PDF receipts (`/receipt.pdf`) with token `#XX`, line items, specs, pricing, and mobile share. |
+| **Operational Analytics** | **Verified** | Real PostgreSQL aggregation without fake charts: Today / 7D / 30D KPI cards, peak printing hours, print mix, printer utilization, order status. |
+| **Printer & Shop Administration** | **Verified** | Connected hardware overview, Add Printer modal (USB/IPP/CUPS), active job deletion safety check, diagnostic Test Page print. |
+| **Student Web (Desktop / Laptop)** | **Verified** | Zero-login desktop storefront on `:3000`, file upload, settings, price preview, live tracking. |
+| **Public QR Student Client (Mobile)** | **Verified** | Independent mobile client on `:3002`, touch dropzone, multi-file breakdown, live token status, receipt download/share. |
+| **Shopkeeper Dashboard (POS)** | **Verified** | Modern POS console on `:3001`, live operational queue, token-based pickup station, printer health, agent heartbeat. |
+| **Cloud Queue & Leasing** | **Verified** | PostgreSQL `FOR UPDATE SKIP LOCKED`, capability-aware matching, lease expiration reconciler. |
+| **Edge Print Daemon & Mock Adapter**| **Verified** | Python daemon, outbound HTTPS client, durable SQLite queue, heartbeat telemetry, simulated page printing. |
+| **CUPS / IPP Driver Layer** | **Implemented** | pycups bindings & CLI fallback; *Hardware qualification pending physical shop deployment*. |
+| **Payment Integration** | **Sandbox & Mock Verified** | Authoritative pricing engine, Razorpay cryptographic signature verification endpoint, webhook deduplication; *Live merchant keys pending*. |
+| **Automated Test Suite** | **50/50 Passing** | Unit, integration, reliability, chaos, multi-file, PDF receipt, analytics, and admin regression tests pass cleanly. |
+| **Production Staging Deployment** | **Ready for Lab** | Full Docker Compose stack (Postgres, Backend, Edge Agent, Student Web, Shop Dashboard, Student QR) healthy and tested. |
 
 ---
 
-## 10. Public QR Student Client (`apps/student-qr`)
+## 10. Public QR Student Client & Phone Demo Setup (`apps/student-qr`)
 
-HEDS includes an isolated, mobile-first client (`apps/student-qr`) on port `3002` designed for students scanning a physical QR code outside a Xerox shop:
-- **Zero Login**: Scan flyer → Upload document → Select B&W/Color → Authoritative price → Sandbox payment → Receive print token.
-- **Two Front Doors, One Backend**: The shopkeeper uses the laptop dashboard (`:3001`), while students use the mobile QR storefront (`:3002`), sharing the exact same PostgreSQL queue, pricing engine, edge print agent, and printer adapter.
-- **Token Pickup**: Direct pickup identifier (e.g., `#51`) without OTP or passwords.
-- For complete setup and tunnel testing details, see [docs/public-qr-client.md](docs/public-qr-client.md).
+HEDS includes an isolated, mobile-first client (`apps/student-qr`) on port `3002` designed for students scanning a physical QR flyer outside a Xerox shop:
+
+### Zero-Friction Architecture
+- **No Student Login, No Registration, No OTP**: Students scan the flyer, drop files, select settings, see authoritative prices, pay, and get a simple token (e.g., `#51`).
+- **Two Front Doors, One Authoritative Backend**:
+  - Desktop student experience: `http://localhost:3000`
+  - Shop operator dashboard: `http://localhost:3001`
+  - Public mobile QR storefront: `http://localhost:3002/s/campus-xerox`
+- **Multi-File Upload**:
+  - Touch drop zone (`+ Add documents`).
+  - Supported formats: PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP.
+  - Limits: Maximum 10 files, 50MB per file, 100MB combined upload size.
+  - Per-file page breakdown and estimated subtotal in the UI.
+  - Authoritative backend conversion into canonical PDF via headless LibreOffice and PIL, with `pypdf` merging and authoritative page counting.
+- **Authoritative PDF Receipt**:
+  - Available at `GET /api/v1/orders/{guest_token}/receipt.pdf`.
+  - Built with ReportLab in A5 format.
+  - Contains HEDS branding, shop name, token `#XX`, order reference, document summary, authoritative price, payment status, and pickup guidance.
+  - Mobile UI provides **View Receipt**, **Download PDF**, and **Share** buttons.
+
+### Phone Testing with Cloudflare Tunnel
+
+To test the mobile client directly on a real smartphone without exposing internal printer or database ports:
+
+```bash
+# 1. Run cloudflared tunnel pointing to the student-qr port (3002)
+cloudflared tunnel --url http://localhost:3002
+```
+
+Configure your environment variables:
+```bash
+# In apps/student-qr/.env.local or shell:
+NEXT_PUBLIC_STOREFRONT_URL=https://your-tunnel-url.trycloudflare.com
+BACKEND_URL=http://localhost:8000
+```
+
+Scan the resulting URL on your mobile phone:
+```text
+https://your-tunnel-url.trycloudflare.com/s/campus-xerox
+```
+
+---
+
+## 11. Hardware Printer Administration & Operational Analytics
+
+### Printer Administration (`Settings` & `Printers`)
+- **Connected Hardware**: Real-time listing of printers, models, paper sizes, color/duplex capabilities, and operational status.
+- **Safe Hardware Modification**:
+  - Attempting to remove or disable a printer with active print jobs warns the operator and prevents silent job abortion.
+- **System Test Print**:
+  - `[Test Print Page]` button dispatches a controlled diagnostic print job clearly tagged as `SYSTEM TEST PRINT` to verify spooling without student order collision.
+- **Edge Agent Telemetry**:
+  - Shows agent online/offline status, software version, host OS, local queue length, last heartbeat, and reconnect trigger.
+
+### Operational Analytics
+- **Authoritative PostgreSQL Aggregation**: Every metric is calculated directly from database records without mocked client statistics.
+- **KPI Metrics**: Orders Today, Pages Printed, Net Revenue (₹), Average Order Value, Failed Jobs, Print Success Rate (%).
+- **Charts & Breakdowns**:
+  - Peak print hours distribution (08:00 to 20:00).
+  - Print Mix: Monochrome vs. Color, Single-sided vs. Duplex.
+  - Hardware Printer Utilization (% share of total printed jobs).
+  - Order Status Breakdown (Completed, Printing, Queued, Failed, Pickup Ready).
+- **Date Filters**: Filter by `Today`, `7 Days`, or `30 Days`, with clean empty states if no data is present.
 
 ---
 

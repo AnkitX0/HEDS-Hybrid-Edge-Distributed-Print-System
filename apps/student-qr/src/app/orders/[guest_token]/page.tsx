@@ -87,8 +87,39 @@ export default function OrderTrackingPage() {
 
   const totalAmountFormatted = `₹${(order.total_amount_cents / 100).toFixed(2)}`;
 
-  // Format token display: e.g. "HDS-1051" -> "#51" or display the order number
-  const tokenNumber = order.order_number.replace(/^HDS-10?/, "#") || `#${order.order_number}`;
+  // Format token display: e.g. "ORD-49210" -> "#49210" or "HDS-1051" -> "#51"
+  const tokenNumber = order.order_number.includes("-")
+    ? `#${order.order_number.split("-").pop()}`
+    : `#${order.order_number}`;
+
+  const receiptPdfUrl = `/api/v1/orders/${guestToken}/receipt.pdf`;
+
+  const handleShare = async () => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: `HEDS Print Token ${tokenNumber}`,
+          text: `My print token is ${tokenNumber} for order ${order.order_number}.`,
+          url: window.location.href,
+        });
+      } catch {
+        // User cancelled share
+      }
+    } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("Tracking link copied to clipboard!");
+    }
+  };
+
+  const handleDownloadPdf = () => {
+    const link = document.createElement("a");
+    link.href = receiptPdfUrl;
+    link.download = `receipt_${order.order_number}.pdf`;
+    link.target = "_blank";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-4">
@@ -140,7 +171,6 @@ export default function OrderTrackingPage() {
               <p className="text-xs text-slate-700">
                 Spooling pages to physical printer...
               </p>
-              {/* Progress bar simulation */}
               <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                 <div className="bg-blue-600 h-full w-3/4 animate-pulse rounded-full"></div>
               </div>
@@ -190,17 +220,37 @@ export default function OrderTrackingPage() {
           </div>
         </div>
 
-        {/* RECEIPT TRIGGER BUTTON */}
-        <div className="pt-2">
-          <Button
-            variant="outline"
-            size="md"
-            onClick={() => setShowReceipt(true)}
-            className="w-full flex items-center justify-center gap-2"
-          >
-            <Receipt className="w-4 h-4" />
-            View Official Receipt
-          </Button>
+        {/* RECEIPT & ACTION BUTTONS */}
+        <div className="pt-2 space-y-2">
+          <div className="grid grid-cols-3 gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowReceipt(true)}
+              className="flex items-center justify-center gap-1 text-xs"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              View
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadPdf}
+              className="flex items-center justify-center gap-1 text-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className="flex items-center justify-center gap-1 text-xs"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Share
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -213,7 +263,7 @@ export default function OrderTrackingPage() {
         <div className="space-y-4 font-mono text-xs">
           <div className="text-center pb-3 border-b border-dashed border-slate-300">
             <span className="font-bold text-slate-900 text-sm block">HEDS PRINT RECEIPT</span>
-            <span className="text-slate-500 text-[10px]">Campus Xerox & Print Hub</span>
+            <span className="text-slate-500 text-[10px]">Hybrid Edge Distributed Print System</span>
           </div>
 
           <div className="space-y-1.5">
@@ -234,8 +284,8 @@ export default function OrderTrackingPage() {
               <span className="text-slate-800">{order.document_pages}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500">Payment:</span>
-              <span className="text-emerald-700 font-bold">PAID (Razorpay/UPI)</span>
+              <span className="text-slate-500">Payment Status:</span>
+              <span className="text-emerald-700 font-bold">PAID</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Date:</span>
@@ -254,10 +304,10 @@ export default function OrderTrackingPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.print()}
+              onClick={handleDownloadPdf}
               className="flex-1 flex items-center justify-center gap-1.5"
             >
-              <Download className="w-3.5 h-3.5" /> Print Receipt
+              <Download className="w-3.5 h-3.5" /> Download PDF
             </Button>
             <Button
               variant="secondary"
@@ -273,3 +323,4 @@ export default function OrderTrackingPage() {
     </div>
   );
 }
+

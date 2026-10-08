@@ -201,3 +201,146 @@ async def get_shop_dashboard(
             "total_agents": len(agents),
         },
     }
+
+
+from fastapi import Query
+
+
+@router.get("/shop/analytics")
+async def get_shop_analytics(
+    time_range: str = Query("today", alias="range"),
+    shop: Shop = Depends(get_authorized_shop),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authoritative operational analytics derived strictly from PostgreSQL records.
+    Provides KPIs, peak print hours, print mix, printer utilization, and order status counts.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.modules.orders.models import ColorMode
+    from app.modules.documents.models import Document
+
+    now = datetime.now(timezone.utc)
+    target_range = (time_range or "today").lower()
+    if target_range == "7d":
+        start_time = now - timedelta(days=7)
+    elif target_range == "30d":
+        start_time = now - timedelta(days=30)
+    else:  # "today"
+        start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+
+    # Query all orders in range
+    orders_stmt = (
+        select(Order)
+        .options(
+            selectinload(Order.document),
+            selectinload(Order.print_specification),
+        )
+        .where(Order.shop_id == shop.id, Order.created_at >= start_time)
+        .order_by(Order.created_at.asc())
+    )
+    orders_res = await db.execute(orders_stmt)
+    orders = orders_res.scalars().all()
+
+    orders_count = len(orders)
+    completed_orders = [o for o in orders if o.status == OrderState.COMPLETED]
+    pages_printed = sum(
+        (o.document.page_count * (o.print_specification.copies if o.print_specification else 1))
+        for o in orders
+        if o.status in [OrderState.PRINT_COMPLETED, OrderState.PICKUP_READY, OrderState.COMPLETED] and o.document
+    )
+    revenue_cents = sum(
+        o.total_amount_cents
+        for o in orders
+        if o.status not in [OrderState.CREATED, OrderState.PAYMENT_PENDING, OrderState.PAYMENT_FAILED, OrderState.CANCELLED]
+    )
+    avg_order_cents = revenue_cents // orders_count if orders_count > 0 else 0
+
+    # Failed & completed jobs
+    jobs_stmt = (
+        select(PrintJob)
+        .where(PrintJob.shop_id == shop.id, PrintJob.created_at >= start_time)
+    )
+    jobs_res = await db.execute(jobs_stmt)
+    jobs = jobs_res.scalars().all()
+
+    completed_jobs_count = sum(1 for j in jobs if j.status == JobStatus.COMPLETED)
+    failed_jobs_count = sum(1 for j in jobs if j.status in [JobStatus.FAILED, JobStatus.RECONCILING])
+    total_finished = completed_jobs_count + failed_jobs_count
+    success_rate = round((completed_jobs_count / total_finished * 100), 1) if total_finished > 0 else 100.0
+
+    # Peak Print Hours (8 AM to 8 PM or hours with activity)
+    hourly_pages: Dict[int, int] = {h: 0 for h in range(8, 21)}
+    for o in orders:
+        if o.created_at and o.document:
+            h = o.created_at.hour
+            pages = o.document.page_count * (o.print_specification.copies if o.print_specification else 1)
+            hourly_pages[h] = hourly_pages.get(h, 0) + pages
+
+    peak_hours = [
+        {"hour": f"{h:02d}:00", "pages": pages}
+        for h, pages in sorted(hourly_pages.items())
+    ]
+
+    # Print Mix
+    bw_count = sum(1 for o in orders if o.print_specification and o.print_specification.color_mode == ColorMode.BW)
+    color_count = sum(1 for o in orders if o.print_specification and o.print_specification.color_mode == ColorMode.COLOR)
+    simplex_count = sum(1 for o in orders if o.print_specification and not o.print_specification.duplex)
+    duplex_count = sum(1 for o in orders if o.print_specification and o.print_specification.duplex)
+
+    # Printer Utilization
+    printers_stmt = select(Printer).where(Printer.shop_id == shop.id)
+    printers = (await db.execute(printers_stmt)).scalars().all()
+    printer_map: Dict[str, int] = {p.name: 0 for p in printers}
+
+    for j in jobs:
+        if j.printer_id:
+            for p in printers:
+                if p.id == j.printer_id:
+                    printer_map[p.name] = printer_map.get(p.name, 0) + 1
+
+    total_printer_jobs = sum(printer_map.values())
+    printer_utilization = [
+        {
+            "name": name,
+            "jobs": count,
+            "percentage": round((count / total_printer_jobs * 100), 1) if total_printer_jobs > 0 else 0,
+        }
+        for name, count in printer_map.items()
+    ]
+
+    # Order Status Distribution
+    status_counts = {
+        "COMPLETED": sum(1 for o in orders if o.status == OrderState.COMPLETED),
+        "PRINTING": sum(1 for o in orders if o.status == OrderState.PRINTING),
+        "QUEUED": sum(1 for o in orders if o.status in [OrderState.QUEUED, OrderState.DISPATCHED]),
+        "FAILED": sum(1 for o in orders if o.status in [OrderState.PRINT_FAILED, OrderState.PAYMENT_FAILED]),
+        "PICKUP_READY": sum(1 for o in orders if o.status in [OrderState.PICKUP_READY, OrderState.PRINT_COMPLETED]),
+    }
+
+    return {
+        "range": target_range,
+        "has_data": orders_count > 0 or len(jobs) > 0,
+
+        "kpis": {
+            "orders_today": orders_count,
+            "pages_printed": pages_printed,
+            "revenue_cents": revenue_cents,
+            "revenue_formatted": f"₹{revenue_cents / 100:.2f}",
+            "average_order_formatted": f"₹{avg_order_cents / 100:.2f}",
+            "failed_jobs": failed_jobs_count,
+            "print_success_rate": f"{success_rate}%",
+        },
+        "peak_hours": peak_hours,
+        "print_mix": {
+            "bw": bw_count,
+            "color": color_count,
+            "single_sided": simplex_count,
+            "duplex": duplex_count,
+        },
+        "printer_utilization": printer_utilization,
+        "order_status": status_counts,
+    }
+

@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { apiClient } from "@/lib/api/client";
 
 interface PrintersViewProps {
   printers: any[];
@@ -52,17 +53,29 @@ export const PrintersView: React.FC<PrintersViewProps> = ({ printers, agents }) 
             <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-mono">
               <span>{p.capabilities?.color ? "Color & B/W" : "Monochrome"}</span>
               <span>{p.capabilities?.duplex ? "Duplex" : "Single"}</span>
-              <span>{(p.capabilities?.paper_sizes || ["A4"]).join(", ")}</span>
             </div>
 
             <div className="pt-1 flex gap-2">
-              <Button size="sm" variant="outline" className="w-full">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={async () => {
+                  try {
+                    const res = await apiClient.post<any>(`/api/v1/shop/printers/${p.id}/test-print`);
+                    alert(`Diagnostics test page queued for ${p.name} (Order: ${res.order_number})`);
+                  } catch (err: any) {
+                    alert(`Failed to queue test print: ${err.message}`);
+                  }
+                }}
+              >
                 Test Print Page
               </Button>
             </div>
           </Card>
         ))}
       </div>
+
 
       {/* Edge Agent Summary Section */}
       <Card

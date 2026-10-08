@@ -36,12 +36,30 @@ class ShopPublicInfo(BaseModel):
 
 
 # Document & Upload Schemas
+class DocumentItemDetail(BaseModel):
+    filename: str
+    page_count: int
+    file_size_bytes: int
+    mime_type: str
+
+
 class DocumentUploadResponse(BaseModel):
     document_id: str
     filename: str
     file_size_bytes: int
     page_count: int
     mime_type: str
+    documents: Optional[List[DocumentItemDetail]] = None
+
+
+class MultiDocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    total_size_bytes: int
+    total_pages: int
+    mime_type: str = "application/pdf"
+    documents: List[DocumentItemDetail]
+
 
 
 # Pricing Quote Schemas
@@ -166,6 +184,7 @@ class JobStatusUpdateRequest(BaseModel):
 class PickupConfirmRequest(BaseModel):
     order_id: Optional[str] = None
     order_number: Optional[str] = None
+    token: Optional[str] = None
     otp: Optional[str] = None
 
 

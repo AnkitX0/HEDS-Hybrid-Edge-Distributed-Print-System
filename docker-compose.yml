@@ -31,7 +31,7 @@ services:
       SYNC_DATABASE_URL: postgresql://heds_user:heds_secure_password@postgres:5432/heds_db
       STORAGE_BACKEND: local
       STORAGE_LOCAL_DIR: /app/storage_data
-      CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost:8000"]'
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost:3002","http://localhost:8000"]'
     ports:
       - "8000:8000"
     volumes:
@@ -47,6 +47,20 @@ services:
       - backend
     ports:
       - "3000:3000"
+    environment:
+      BACKEND_URL: http://backend:8000
+      PORT: 3000
+
+  student-qr:
+    build:
+      context: apps/student-qr
+      dockerfile: ../../infrastructure/docker/Dockerfile.frontend
+    container_name: heds-student-qr
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3002:3000"
     environment:
       BACKEND_URL: http://backend:8000
       PORT: 3000

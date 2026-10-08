@@ -77,7 +77,33 @@ class PickupService:
         pickup = res.scalar_one_or_none()
 
         if not pickup:
-            raise HEDSException(code="PICKUP_NOT_FOUND", message="Pickup record not found for this order")
+            # Check if order exists directly
+            stmt_ord = select(Order).where(Order.id == order_id)
+            res_ord = await session.execute(stmt_ord)
+            ord_obj = res_ord.scalar_one_or_none()
+            if not ord_obj:
+                raise HEDSException(code="PICKUP_NOT_FOUND", message="Pickup record not found for this order")
+            if ord_obj.status == OrderState.COMPLETED:
+                return ord_obj
+            await PickupService.create_privacy_hold(session=session, order=ord_obj)
+            res = await session.execute(stmt)
+            pickup = res.scalar_one_or_none()
+            if not pickup:
+                raise HEDSException(code="PICKUP_NOT_FOUND", message="Failed to initialize pickup record for order")
+
+        if pickup.order.status == OrderState.COMPLETED:
+            # Idempotent response: order has already been collected
+            return pickup.order
+
+        if pickup.order.status == OrderState.PRINT_COMPLETED:
+            # Transition to PICKUP_READY before completion
+            await OrderStateMachine.transition(
+                session=session,
+                order=pickup.order,
+                target_state=OrderState.PICKUP_READY,
+                actor_type="SYSTEM",
+                reason="Auto-transition to PICKUP_READY prior to counter pickup confirmation",
+            )
 
         if pickup.order.status != OrderState.PICKUP_READY:
             raise InvalidStateTransitionException(

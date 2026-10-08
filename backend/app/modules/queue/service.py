@@ -88,6 +88,7 @@ class QueueService:
             )
             .where(
                 PrintJob.shop_id == shop_id,
+                Order.status.in_([OrderState.QUEUED, OrderState.PAID]),
                 or_(
                     PrintJob.status == JobStatus.QUEUED,
                     and_(
@@ -96,6 +97,7 @@ class QueueService:
                     ),
                 ),
             )
+
             .order_by(PrintJob.priority.asc(), PrintJob.queued_at.asc())
             .with_for_update(skip_locked=True)
             .limit(10)

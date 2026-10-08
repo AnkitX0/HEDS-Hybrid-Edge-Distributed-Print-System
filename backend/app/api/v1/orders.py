@@ -1,7 +1,7 @@
 import uuid
 import secrets
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -22,16 +22,20 @@ from app.modules.orders.models import (
     Scaling,
 )
 from app.modules.queue.models import PrintJob, JobStatus
+from app.modules.orders.receipt import generate_order_receipt_pdf
 from app.api.deps import require_shop_operator, get_authorized_shop
 from app.api.v1.schemas import (
     OrderResponse,
     DocumentUploadResponse,
+    MultiDocumentUploadResponse,
+    DocumentItemDetail,
     PricingQuoteRequest,
     PricingQuoteResponse,
 )
 from app.core.logging import logger
 
 router = APIRouter(tags=["Orders"])
+
 
 
 @router.post("/shops/{shop_slug}/documents/upload", response_model=DocumentUploadResponse)
@@ -84,6 +88,82 @@ async def upload_shop_document(
         file_size_bytes=doc.file_size_bytes,
         page_count=doc.page_count,
         mime_type=doc.mime_type,
+    )
+
+
+@router.post("/shops/{shop_slug}/documents/upload-multiple", response_model=MultiDocumentUploadResponse)
+async def upload_multiple_shop_documents(
+    shop_slug: str,
+    files: List[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 1 of Multi-File Student Flow:
+    Accepts 1 to 10 documents (PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP).
+    Authoritatively inspects, converts Word/Images to printable PDF,
+    determines page counts, merges into a canonical printable PDF,
+    and returns authoritative total pages and document breakdown.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided for upload.")
+
+    if len(files) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 files allowed per upload.")
+
+    res = await db.execute(
+        select(Shop).where(Shop.slug == shop_slug, Shop.is_active == True)
+    )
+    shop = res.scalar_one_or_none()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found or inactive")
+
+    uploaded_tuples = []
+    for f in files:
+        uploaded_tuples.append((
+            f.file,
+            f.filename or "document.pdf",
+            f.content_type or "application/octet-stream",
+        ))
+
+    try:
+        composite_name, storage_path, total_size, checksum, total_pages, file_details = (
+            await document_service.process_multi_upload(uploaded_tuples)
+        )
+    except Exception as e:
+        logger.error(f"[UPLOAD-MULTI] Failed to process documents: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    doc = Document(
+        shop_id=shop.id,
+        original_filename=composite_name if len(files) > 1 else files[0].filename or "document.pdf",
+        sanitized_filename=composite_name,
+        storage_path=storage_path,
+        mime_type="application/pdf",
+        file_size_bytes=total_size,
+        page_count=total_pages,
+        checksum_sha256=checksum,
+    )
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    doc_items = [
+        DocumentItemDetail(
+            filename=item["filename"],
+            page_count=item["page_count"],
+            file_size_bytes=item["file_size_bytes"],
+            mime_type=item["mime_type"],
+        )
+        for item in file_details
+    ]
+
+    return MultiDocumentUploadResponse(
+        document_id=str(doc.id),
+        filename=doc.original_filename,
+        total_size_bytes=total_size,
+        total_pages=total_pages,
+        mime_type="application/pdf",
+        documents=doc_items,
     )
 
 
@@ -442,6 +522,111 @@ async def stream_order_events(guest_token: str):
         },
     )
 
+
+@router.get("/orders/{guest_token}/receipt.pdf")
+async def get_order_receipt_pdf_endpoint(
+    guest_token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public student receipt download:
+    Renders authoritative, clean PDF receipt generated directly from database order record.
+    Accessible using unguessable guest token.
+    """
+    stmt = (
+        select(Order)
+        .options(
+            selectinload(Order.document),
+            selectinload(Order.print_specification),
+            selectinload(Order.payment),
+            selectinload(Order.shop),
+        )
+        .where(Order.guest_access_token == guest_token)
+    )
+    res = await db.execute(stmt)
+    order = res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    shop = order.shop
+    shop_name = shop.name if shop else "Campus Xerox"
+    spec = order.print_specification
+    doc = order.document
+
+    payment_method = "UPI / Razorpay" if order.payment and order.payment.gateway == "RAZORPAY" else "UPI / Digital Pay"
+    gateway_id = order.payment.gateway_payment_id if order.payment else None
+
+    pdf_bytes = generate_order_receipt_pdf(
+        shop_name=shop_name,
+        order_number=order.order_number,
+        guest_token=order.guest_access_token,
+        document_name=doc.original_filename if doc else "document.pdf",
+        page_count=doc.page_count if doc else 1,
+        copies=spec.copies if spec else 1,
+        color_mode=spec.color_mode.value if spec else "BW",
+        duplex=spec.duplex if spec else False,
+        paper_size=spec.paper_size if spec else "A4",
+        total_amount_cents=order.total_amount_cents,
+        created_at=order.created_at,
+        pricing_breakdown=order.pricing_breakdown_json,
+        payment_method=payment_method,
+        gateway_id=gateway_id,
+    )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="receipt_{order.order_number}.pdf"',
+            "Cache-Control": "private, max-age=60",
+        },
+    )
+
+
+@router.get("/orders/{guest_token}/receipt")
+async def get_order_receipt_json_endpoint(
+    guest_token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns structured metadata for student receipt display.
+    """
+    stmt = (
+        select(Order)
+        .options(
+            selectinload(Order.document),
+            selectinload(Order.print_specification),
+            selectinload(Order.payment),
+            selectinload(Order.shop),
+        )
+        .where(Order.guest_access_token == guest_token)
+    )
+    res = await db.execute(stmt)
+    order = res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    shop = order.shop
+    spec = order.print_specification
+    doc = order.document
+    token_display = f"#{order.order_number.split('-')[-1]}" if "-" in order.order_number else f"#{order.order_number}"
+
+    return {
+        "order_number": order.order_number,
+        "token_display": token_display,
+        "shop_name": shop.name if shop else "Campus Xerox",
+        "document_name": doc.original_filename if doc else "document.pdf",
+        "page_count": doc.page_count if doc else 1,
+        "copies": spec.copies if spec else 1,
+        "color_mode": spec.color_mode.value if spec else "BW",
+        "duplex": spec.duplex if spec else False,
+        "paper_size": spec.paper_size if spec else "A4",
+        "total_amount_cents": order.total_amount_cents,
+        "currency": order.currency,
+        "status": order.status.value,
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "pdf_url": f"/api/v1/orders/{guest_token}/receipt.pdf",
+    }
 
 
 @router.get("/shop/orders")

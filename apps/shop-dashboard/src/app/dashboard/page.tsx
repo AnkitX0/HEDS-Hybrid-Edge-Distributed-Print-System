@@ -115,14 +115,16 @@ export default function ShopDashboard() {
         }),
       });
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.detail || "Failed to confirm pickup");
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || d.message || "Failed to confirm pickup");
       }
       setActionMessage(`Order ${orderNumber} marked as collected.`);
-      refetchQueue();
-      refetchDashboard();
+      await Promise.all([refetchQueue(), refetchDashboard()]);
+      return true;
     } catch (err: any) {
-      setActionMessage(err.message || "Failed to mark order as collected");
+      const msg = err.message || "Could not mark this order as collected.";
+      setActionMessage(msg);
+      throw new Error(msg);
     }
   };
 
@@ -132,12 +134,17 @@ export default function ShopDashboard() {
         method: "POST",
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error("Retry failed");
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || d.message || "Retry failed");
+      }
       setActionMessage("Job re-enqueued for print dispatch.");
-      refetchQueue();
-      refetchDashboard();
+      await Promise.all([refetchQueue(), refetchDashboard()]);
+      return true;
     } catch (err: any) {
-      setActionMessage(err.message);
+      const msg = err.message || "Could not retry print job.";
+      setActionMessage(msg);
+      throw new Error(msg);
     }
   };
 
@@ -147,12 +154,17 @@ export default function ShopDashboard() {
         method: "POST",
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error("Cancel failed");
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || d.message || "Cancel failed");
+      }
       setActionMessage("Job cancelled.");
-      refetchQueue();
-      refetchDashboard();
+      await Promise.all([refetchQueue(), refetchDashboard()]);
+      return true;
     } catch (err: any) {
-      setActionMessage(err.message);
+      const msg = err.message || "Could not cancel print job.";
+      setActionMessage(msg);
+      throw new Error(msg);
     }
   };
 

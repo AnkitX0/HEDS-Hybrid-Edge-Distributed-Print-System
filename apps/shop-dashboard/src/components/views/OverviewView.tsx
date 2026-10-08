@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Layers, Printer, FileText, CheckSquare, ArrowRight, Play, CheckCircle2 } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -34,6 +34,19 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const currentlyPrinting = queueItems.find((i) => i.status === "PRINTING") || queueItems.find((i) => i.status === "QUEUED");
   const readyPickupItems = queueItems.filter((i) => i.order_status === "PICKUP_READY" || i.status === "COMPLETED" && i.order_status !== "COMPLETED");
   const recentOrders = queueItems.slice(0, 5);
+
+  const [collectingKeys, setCollectingKeys] = useState<Record<string, boolean>>({});
+
+  const handleCollect = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (collectingKeys[key]) return;
+    setCollectingKeys((prev) => ({ ...prev, [key]: true }));
+    try {
+      await onMarkCollected(item);
+    } finally {
+      setCollectingKeys((prev) => ({ ...prev, [key]: false }));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -173,9 +186,27 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                           {item.pages} pages &bull; ₹{(item.total_amount_cents / 100).toFixed(2)}
                         </p>
                       </div>
-                      <Button size="sm" variant="primary" onClick={() => onMarkCollected(item)}>
-                        Mark Collected
-                      </Button>
+                      <div className="shrink-0 ml-2">
+                        {collectingKeys[item.job_id || item.order_id || idx] ? (
+                          <button
+                            disabled
+                            className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-blue-50 text-blue-700 border border-blue-200 cursor-not-allowed"
+                          >
+                            <svg className="animate-spin -ml-1 mr-1.5 h-3.5 w-3.5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Collecting...</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleCollect(item)}
+                            className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs transition-colors"
+                          >
+                            <span>Mark Collected</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -253,7 +284,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               {recentOrders.map((item) => (
                 <tr key={item.job_id || item.order_id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-2.5 font-mono font-bold text-slate-900">{item.order_number}</td>
-                  <td className="px-4 py-2.5 font-medium text-slate-800 truncate max-w-[160px]">{item.document_name}</td>
+                  <td className="px-4 py-2.5 font-medium text-slate-800 truncate max-w-[160px]" title={item.document_name}>{item.document_name}</td>
                   <td className="px-4 py-2.5 font-mono text-slate-700">{item.pages}</td>
                   <td className="px-4 py-2.5 text-slate-600">{item.color_mode}</td>
                   <td className="px-4 py-2.5 text-slate-600 font-mono">UPI</td>

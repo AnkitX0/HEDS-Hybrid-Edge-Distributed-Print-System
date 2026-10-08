@@ -8,13 +8,14 @@ import { EmptyState } from "@/components/ui/EmptyState";
 
 interface PickupViewProps {
   queueItems: any[];
-  onConfirmPickup: (orderId: string, orderNumber: string) => Promise<void>;
+  onConfirmPickup: (orderId: string, orderNumber: string) => Promise<any> | void;
 }
 
 export const PickupView: React.FC<PickupViewProps> = ({ queueItems, onConfirmPickup }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pickupError, setPickupError] = useState<string | null>(null);
 
   const readyPickupItems = queueItems.filter((item) => {
     const isReady = item.order_status === "PICKUP_READY" || (item.status === "COMPLETED" && item.order_status !== "COMPLETED");
@@ -31,11 +32,12 @@ export const PickupView: React.FC<PickupViewProps> = ({ queueItems, onConfirmPic
   const handleConfirmCollected = async () => {
     if (!selectedOrder) return;
     setIsSubmitting(true);
+    setPickupError(null);
     try {
       await onConfirmPickup(selectedOrder.order_id || selectedOrder.id, selectedOrder.order_number);
       setSelectedOrder(null);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setPickupError(e.message || "Could not mark this order as collected. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -136,6 +138,11 @@ export const PickupView: React.FC<PickupViewProps> = ({ queueItems, onConfirmPic
         }
       >
         <div className="space-y-3 py-1 text-xs">
+          {pickupError && (
+            <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs">
+              {pickupError}
+            </div>
+          )}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded space-y-1">
             <div className="flex justify-between font-mono">
               <span className="text-slate-500">Document:</span>

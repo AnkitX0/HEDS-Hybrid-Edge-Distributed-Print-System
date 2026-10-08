@@ -18,13 +18,13 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, label, classNa
   if (["ready", "pickup_ready", "online", "completed", "success"].includes(norm)) {
     variantStyles = "bg-emerald-50 text-emerald-800 border-emerald-200";
     dotColor = "bg-emerald-500";
-  } else if (["printing", "in_progress", "active", "spooling"].includes(norm)) {
+  } else if (["printing", "processing", "in_progress", "active", "spooling"].includes(norm)) {
     variantStyles = "bg-blue-50 text-blue-800 border-blue-200";
     dotColor = "bg-blue-600 animate-pulse";
-  } else if (["queued", "waiting", "dispatched", "paid", "created"].includes(norm)) {
+  } else if (["queued", "waiting", "dispatched", "paid", "created", "reconciling", "paused"].includes(norm)) {
     variantStyles = "bg-amber-50 text-amber-800 border-amber-200";
     dotColor = "bg-amber-500";
-  } else if (["failed", "print_failed", "offline", "error", "reconciling"].includes(norm)) {
+  } else if (["failed", "print_failed", "offline", "error"].includes(norm)) {
     variantStyles = "bg-rose-50 text-rose-800 border-rose-200";
     dotColor = "bg-rose-600";
   }

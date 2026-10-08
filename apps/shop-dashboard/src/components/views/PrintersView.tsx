@@ -12,6 +12,9 @@ interface PrintersViewProps {
 }
 
 export const PrintersView: React.FC<PrintersViewProps> = ({ printers, agents }) => {
+  const [testingPrinterId, setTestingPrinterId] = React.useState<string | null>(null);
+  const [testResult, setTestResult] = React.useState<{ message: string; isError?: boolean } | null>(null);
+
   const activePrinters = printers.length > 0 ? printers : [
     { id: 'p1', name: 'HP LaserJet Pro 4004', status: 'ONLINE', activity: 'Idle', capabilities: { paper_sizes: ['A4'], color: false, duplex: true } },
     { id: 'p2', name: 'Xerox WorkCentre 7830', status: 'ONLINE', activity: 'Printing', capabilities: { paper_sizes: ['A4', 'A3'], color: true, duplex: true } },
@@ -26,6 +29,24 @@ export const PrintersView: React.FC<PrintersViewProps> = ({ printers, agents }) 
           {activePrinters.filter(p => p.status === 'ONLINE').length} printers online &bull; {activePrinters.filter(p => p.status === 'OFFLINE').length} offline
         </p>
       </div>
+
+      {testResult && (
+        <div
+          className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
+            testResult.isError
+              ? "bg-rose-50 border-rose-200 text-rose-800"
+              : "bg-emerald-50 border-emerald-200 text-emerald-800"
+          }`}
+        >
+          <span>{testResult.message}</span>
+          <button
+            onClick={() => setTestResult(null)}
+            className="text-xs underline font-medium ml-3"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {activePrinters.map((p) => (
@@ -55,17 +76,23 @@ export const PrintersView: React.FC<PrintersViewProps> = ({ printers, agents }) 
               <span>{p.capabilities?.duplex ? "Duplex" : "Single"}</span>
             </div>
 
-            <div className="pt-1 flex gap-2">
+            <div className="pt-1 flex flex-col gap-1.5">
               <Button
                 size="sm"
                 variant="outline"
                 className="w-full"
+                isLoading={testingPrinterId === p.id}
+                disabled={testingPrinterId !== null}
                 onClick={async () => {
+                  setTestingPrinterId(p.id);
+                  setTestResult(null);
                   try {
                     const res = await apiClient.post<any>(`/api/v1/shop/printers/${p.id}/test-print`);
-                    alert(`Diagnostics test page queued for ${p.name} (Order: ${res.order_number})`);
+                    setTestResult({ message: `Diagnostics test page queued for ${p.name} (Order: ${res.order_number})` });
                   } catch (err: any) {
-                    alert(`Failed to queue test print: ${err.message}`);
+                    setTestResult({ message: `Failed to queue test print: ${err.message}`, isError: true });
+                  } finally {
+                    setTestingPrinterId(null);
                   }
                 }}
               >

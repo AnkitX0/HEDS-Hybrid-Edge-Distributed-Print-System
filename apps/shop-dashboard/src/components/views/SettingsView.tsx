@@ -464,7 +464,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ shopData }) => {
                     </Button>
                     <button
                       type="button"
-                      onClick={() => handleDeletePrinter(p)}
+                      onClick={() => {
+                        if (confirm(`Are you sure you want to remove printer '${p.name}'?`)) {
+                          handleDeletePrinter(p);
+                        }
+                      }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 rounded transition-colors"
                       title="Remove printer"
                     >

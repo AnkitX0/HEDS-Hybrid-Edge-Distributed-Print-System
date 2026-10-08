@@ -88,7 +88,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ orders }) => {
                 {filteredOrders.map((o) => (
                   <tr key={o.job_id || o.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-mono font-bold text-slate-900">{o.order_number}</td>
-                    <td className="px-4 py-3 font-medium text-slate-800 truncate max-w-[200px]">{o.document_name}</td>
+                    <td className="px-4 py-3 font-medium text-slate-800 truncate max-w-[200px]" title={o.document_name}>{o.document_name}</td>
                     <td className="px-4 py-3 font-mono text-slate-500 text-[11px]">
                       {new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </td>

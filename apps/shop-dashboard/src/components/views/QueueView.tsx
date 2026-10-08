@@ -1,17 +1,16 @@
 import React, { useState } from "react";
-import { Search, FileText, RefreshCw, AlertTriangle, XCircle, CheckSquare } from "lucide-react";
+import { Search, FileText, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Clock } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 
 interface QueueViewProps {
   queueItems: any[];
   printers: any[];
-  onMarkCollected: (item: any) => void;
+  onMarkCollected: (item: any) => Promise<boolean | void> | void;
   onOpenReconcileModal: (item: any) => void;
-  onRetryJob: (jobId: string) => void;
-  onCancelJob: (jobId: string) => void;
+  onRetryJob: (jobId: string) => Promise<boolean | void> | void;
+  onCancelJob: (jobId: string) => Promise<boolean | void> | void;
 }
 
 export const QueueView: React.FC<QueueViewProps> = ({
@@ -25,6 +24,69 @@ export const QueueView: React.FC<QueueViewProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<string>("ALL");
   const [selectedPrinter, setSelectedPrinter] = useState<string>("ALL");
+
+  // Track per-item async action state: idle | loading | success | failure
+  const [actionStates, setActionStates] = useState<
+    Record<string, { status: "idle" | "loading" | "success" | "failure"; message?: string }>
+  >({});
+
+  const handleMarkCollectedClick = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (actionStates[key]?.status === "loading") return; // Prevent double clicks / race conditions
+
+    setActionStates((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    try {
+      await onMarkCollected(item);
+      setActionStates((prev) => ({ ...prev, [key]: { status: "success" } }));
+    } catch {
+      setActionStates((prev) => ({
+        ...prev,
+        [key]: { status: "failure", message: "Could not mark this order as collected." },
+      }));
+      // Reset back to idle after 3 seconds so operator can retry
+      setTimeout(() => {
+        setActionStates((prev) => ({ ...prev, [key]: { status: "idle" } }));
+      }, 3000);
+    }
+  };
+
+  const handleRetryClick = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (actionStates[key]?.status === "loading") return;
+
+    setActionStates((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    try {
+      await onRetryJob(item.job_id);
+      setActionStates((prev) => ({ ...prev, [key]: { status: "success" } }));
+    } catch {
+      setActionStates((prev) => ({
+        ...prev,
+        [key]: { status: "failure", message: "Could not retry job." },
+      }));
+      setTimeout(() => {
+        setActionStates((prev) => ({ ...prev, [key]: { status: "idle" } }));
+      }, 3000);
+    }
+  };
+
+  const handleCancelClick = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (actionStates[key]?.status === "loading") return;
+
+    setActionStates((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    try {
+      await onCancelJob(item.job_id);
+      setActionStates((prev) => ({ ...prev, [key]: { status: "success" } }));
+    } catch {
+      setActionStates((prev) => ({
+        ...prev,
+        [key]: { status: "failure", message: "Could not cancel job." },
+      }));
+      setTimeout(() => {
+        setActionStates((prev) => ({ ...prev, [key]: { status: "idle" } }));
+      }, 3000);
+    }
+  };
 
   const filteredItems = queueItems.filter((item) => {
     const matchesSearch =
@@ -49,7 +111,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Print Queue</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Monitor active and waiting print jobs</p>
+          <p className="text-xs text-slate-500 mt-0.5">Monitor active, printing, and waiting jobs</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -81,7 +143,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Filter Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200 pb-2 text-xs">
         {[
           { id: "ALL", label: "All" },
@@ -123,69 +185,173 @@ export const QueueView: React.FC<QueueViewProps> = ({
         {filteredItems.length === 0 ? (
           <EmptyState
             icon={FileText}
-            title="No print jobs in queue"
+            title="Queue is clear"
             description="There are currently no active print jobs matching your criteria."
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs table-auto">
               <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200 font-mono">
                 <tr>
-                  <th className="px-4 py-2.5">Token</th>
-                  <th className="px-4 py-2.5">Document</th>
-                  <th className="px-4 py-2.5">Pages</th>
-                  <th className="px-4 py-2.5">Settings</th>
-                  <th className="px-4 py-2.5">Printer</th>
-                  <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5">Wait</th>
-                  <th className="px-4 py-2.5 text-right">Action</th>
+                  <th className="w-[100px] min-w-[100px] px-4 py-2.5">Token</th>
+                  <th className="min-w-[160px] max-w-[240px] px-4 py-2.5">Document</th>
+                  <th className="w-[70px] min-w-[70px] px-4 py-2.5">Pages</th>
+                  <th className="w-[130px] min-w-[130px] px-4 py-2.5">Settings</th>
+                  <th className="w-[130px] min-w-[130px] px-4 py-2.5">Printer</th>
+                  <th className="w-[110px] min-w-[110px] px-4 py-2.5">Status</th>
+                  <th className="w-[80px] min-w-[80px] px-4 py-2.5">Wait</th>
+                  <th className="w-[160px] min-w-[160px] max-w-[160px] px-4 py-2.5 text-right font-mono">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
                 {filteredItems.map((item) => {
-                  const isPickupReady = item.order_status === "PICKUP_READY" || item.status === "COMPLETED";
+                  const key = item.job_id || item.order_id || item.id;
+                  const itemState = actionStates[key] || { status: "idle" };
+
+                  const isCompleted = item.status === "COMPLETED" || item.order_status === "COMPLETED" || itemState.status === "success";
+                  const isPickupReady = (item.order_status === "PICKUP_READY" || item.status === "COMPLETED") && !isCompleted;
                   const isFailed = item.status === "FAILED";
                   const isReconciling = item.status === "RECONCILING";
                   const isQueued = item.status === "QUEUED";
+                  const isPrinting = item.status === "PRINTING";
+
+                  const tokenDisplay = item.order_number?.includes("-")
+                    ? `#${item.order_number.split("-").pop()}`
+                    : `#${item.order_number}`;
 
                   return (
-                    <tr key={item.job_id || item.order_id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-mono font-bold text-slate-900">{item.order_number}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800 truncate max-w-[180px]">
-                        {item.document_name}
+                    <tr key={key} className="hover:bg-slate-50 transition-colors h-[56px]">
+                      {/* Token */}
+                      <td className="w-[100px] min-w-[100px] px-4 py-2.5 font-mono font-bold text-slate-900 text-sm">
+                        {tokenDisplay}
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-700">{item.pages}</td>
-                      <td className="px-4 py-3 text-slate-600">
+
+                      {/* Document with ellipsis & title tooltip */}
+                      <td className="min-w-[160px] max-w-[240px] px-4 py-2.5 font-medium text-slate-800">
+                        <div className="truncate max-w-[220px]" title={item.document_name}>
+                          {item.document_name}
+                        </div>
+                      </td>
+
+                      {/* Pages */}
+                      <td className="w-[70px] min-w-[70px] px-4 py-2.5 font-mono text-slate-700">
+                        {item.pages}
+                      </td>
+
+                      {/* Settings */}
+                      <td className="w-[130px] min-w-[130px] px-4 py-2.5 text-slate-600 text-[11px]">
                         {item.color_mode} &bull; {item.duplex ? "Duplex" : "Single"}
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-700">{item.printer_name || "HP 4004"}</td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={isPickupReady ? "READY" : item.status} />
+
+                      {/* Printer */}
+                      <td className="w-[130px] min-w-[130px] px-4 py-2.5 font-mono text-slate-700 text-[11px] truncate" title={item.printer_name || "HP LaserJet Pro 4004"}>
+                        {item.printer_name || "HP LaserJet Pro 4004"}
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-500 text-[11px]">
-                        {item.status === "PRINTING" ? "Now" : "~1 min"}
+
+                      {/* Status */}
+                      <td className="w-[110px] min-w-[110px] px-4 py-2.5">
+                        <StatusBadge status={isCompleted ? "COMPLETED" : isPickupReady ? "READY" : item.status} />
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        {isPickupReady && (
-                          <Button size="sm" variant="primary" onClick={() => onMarkCollected(item)}>
-                            Mark Collected
-                          </Button>
-                        )}
-                        {isFailed && (
-                          <Button size="sm" variant="outline" onClick={() => onRetryJob(item.job_id)}>
-                            <RefreshCw className="w-3 h-3" /> Retry
-                          </Button>
-                        )}
-                        {isReconciling && (
-                          <Button size="sm" variant="danger" onClick={() => onOpenReconcileModal(item)}>
-                            Reconcile
-                          </Button>
-                        )}
-                        {isQueued && (
-                          <Button size="sm" variant="ghost" onClick={() => onCancelJob(item.job_id)} className="text-slate-400 hover:text-rose-600">
-                            Cancel
-                          </Button>
-                        )}
+
+                      {/* Wait Time */}
+                      <td className="w-[80px] min-w-[80px] px-4 py-2.5 font-mono text-slate-500 text-[11px]">
+                        {isCompleted ? "Done" : isPickupReady ? "At Counter" : isPrinting ? "Now" : "~1 min"}
+                      </td>
+
+                      {/* Stable Action Column (160px width, 36px x 120px button footprint) */}
+                      <td className="w-[160px] min-w-[160px] max-w-[160px] px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end">
+                          {isCompleted ? (
+                            <div className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono shadow-2xs">
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
+                              <span>Collected</span>
+                            </div>
+                          ) : isPickupReady ? (
+                            itemState.status === "loading" ? (
+                              <button
+                                disabled
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-blue-50 text-blue-700 border border-blue-200 cursor-not-allowed shadow-2xs"
+                              >
+                                <svg
+                                  className="animate-spin -ml-1 mr-1.5 h-3.5 w-3.5 text-blue-600"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Collecting...</span>
+                              </button>
+                            ) : itemState.status === "failure" ? (
+                              <button
+                                onClick={() => handleMarkCollectedClick(item)}
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100 shadow-2xs transition-colors"
+                                title={itemState.message || "Could not mark this order as collected. Click to retry."}
+                              >
+                                <span>Retry Collect</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleMarkCollectedClick(item)}
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                              >
+                                <span>Mark Collected</span>
+                              </button>
+                            )
+                          ) : isFailed ? (
+                            itemState.status === "loading" ? (
+                              <button
+                                disabled
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200 cursor-not-allowed shadow-2xs"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin text-slate-500" />
+                                <span>Retrying...</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRetryClick(item)}
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-xs transition-colors"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                                <span>Retry Print</span>
+                              </button>
+                            )
+                          ) : isReconciling ? (
+                            <button
+                              onClick={() => onOpenReconcileModal(item)}
+                              className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white shadow-xs transition-colors"
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+                              <span>Reconcile</span>
+                            </button>
+                          ) : isQueued ? (
+                            itemState.status === "loading" ? (
+                              <button
+                                disabled
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed"
+                              >
+                                <span>Cancelling...</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleCancelClick(item)}
+                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-white text-slate-600 border border-slate-200 hover:text-rose-600 hover:border-rose-300 shadow-2xs transition-colors"
+                              >
+                                <span>Cancel Job</span>
+                              </button>
+                            )
+                          ) : isPrinting ? (
+                            <div className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-mono flex items-center justify-center bg-blue-50/70 text-blue-700 border border-blue-200">
+                              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse mr-1.5 shrink-0" />
+                              <span>Printing...</span>
+                            </div>
+                          ) : (
+                            <div className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-mono flex items-center justify-center bg-slate-50 text-slate-400 border border-slate-100">
+                              <span>In Queue</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

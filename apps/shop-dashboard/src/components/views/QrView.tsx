@@ -12,10 +12,8 @@ interface QrViewProps {
 export function QrView({ shopSlug, shopName }: QrViewProps) {
   const [copied, setCopied] = useState(false);
   const activeSlug = shopSlug || "campus-xerox";
-  const studentPath = `/s/${activeSlug}`;
-  const studentUrl = typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.hostname}:3000${studentPath}`
-    : `http://localhost:3000${studentPath}`;
+  const baseUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL || (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:3002` : "http://localhost:3002");
+  const studentUrl = baseUrl.endsWith("/") ? `${baseUrl}s/${activeSlug}` : `${baseUrl}/s/${activeSlug}`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(studentUrl);
@@ -159,7 +157,7 @@ export function QrView({ shopSlug, shopName }: QrViewProps) {
               <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[10px] flex items-center justify-center font-mono shrink-0">
                 3
               </span>
-              <span className="font-semibold">Show Token & 6-digit OTP at counter</span>
+              <span className="font-semibold">Show Token at counter to collect print</span>
             </div>
           </div>
 

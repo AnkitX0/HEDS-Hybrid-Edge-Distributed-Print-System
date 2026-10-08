@@ -187,9 +187,14 @@ async def test_client_payment_verification_endpoint():
 
 
 @pytest.mark.asyncio
-async def test_otp_rate_limiting_after_repeated_failures():
+async def test_pickup_token_collection_and_idempotent_duplicate_protection():
     """
-    Verifies that 5 consecutive failed OTP attempts locks verification for that order.
+    Verifies token-based counter pickup flow:
+    - Order is prepared for pickup
+    - Operator marks collected via token
+    - Order transitions to COMPLETED
+    - Duplicate collection is idempotent and protected
+    - Nonexistent order lookup is rejected cleanly
     """
     import secrets
     import uuid
@@ -203,9 +208,9 @@ async def test_otp_rate_limiting_after_repeated_failures():
         shop = (await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))).scalar_one()
         doc = Document(
             shop_id=shop.id,
-            original_filename="otp_rate_test.pdf",
-            sanitized_filename="otp_rate_test.pdf",
-            storage_path="storage_data/otp_rate.pdf",
+            original_filename="pickup_test.pdf",
+            sanitized_filename="pickup_test.pdf",
+            storage_path="storage_data/pickup_test.pdf",
             mime_type="application/pdf",
             file_size_bytes=10000,
             page_count=1,
@@ -216,7 +221,7 @@ async def test_otp_rate_limiting_after_repeated_failures():
 
         order = Order(
             shop_id=shop.id,
-            order_number=f"ORD-OTP-{secrets.token_hex(4)}",
+            order_number=f"ORD-TOKEN-{secrets.token_hex(4)}",
             guest_access_token=f"tok_{secrets.token_hex(16)}",
             document_id=doc.id,
             status=OrderState.PRINT_COMPLETED,
@@ -227,27 +232,30 @@ async def test_otp_rate_limiting_after_repeated_failures():
         session.add(order)
         await session.flush()
 
-        # Engage privacy hold
-        real_otp = await pickup_service.create_privacy_hold(session, order)
+        # Prepare for counter pickup
+        await pickup_service.prepare_for_pickup(session, order)
         await session.commit()
         order_id = order.id
 
-    # Fire 5 incorrect attempts
+    # Confirm collection
     async with AsyncSessionLocal() as session:
-        for i in range(5):
-            with pytest.raises(HEDSException) as exc_info:
-                await pickup_service.verify_and_complete_pickup(
-                    session=session,
-                    order_id=order_id,
-                    provided_otp="000000",
-                )
-            assert exc_info.value.code in ["INVALID_OTP", "OTP_RATE_LIMITED"]
+        completed_order = await pickup_service.confirm_pickup(
+            session=session,
+            order_id=order_id,
+        )
+        assert completed_order.status == OrderState.COMPLETED
 
-        # 6th attempt must be blocked by rate limiter
-        with pytest.raises(HEDSException) as exc_locked:
-            await pickup_service.verify_and_complete_pickup(
+        # Duplicate collection protection (must be idempotent)
+        dup_completed = await pickup_service.confirm_pickup(
+            session=session,
+            order_id=order_id,
+        )
+        assert dup_completed.status == OrderState.COMPLETED
+
+        # Nonexistent order rejection
+        with pytest.raises(HEDSException) as exc_info:
+            await pickup_service.confirm_pickup(
                 session=session,
-                order_id=order_id,
-                provided_otp=real_otp,  # Even correct OTP is locked during rate limit window
+                order_id=uuid.uuid4(),
             )
-        assert exc_locked.value.code == "OTP_RATE_LIMITED"
+        assert exc_info.value.code == "PICKUP_NOT_FOUND"

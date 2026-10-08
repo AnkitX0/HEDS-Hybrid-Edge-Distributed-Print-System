@@ -82,12 +82,10 @@ tenants
 - `lease_id` (String, lease token)
 - `lease_expires_at` (DateTime with time zone)
 
-### `pickups` (Privacy Hold)
+### `pickups` (Counter Collection)
 - `id` (UUID, PK)
 - `order_id` (FK -> orders.id, Unique)
 - `shop_id` (FK -> shops.id)
-- `otp_hash` (String, PBKDF2/SHA-256 salted hash)
-- `otp_salt` (String, 16-byte random salt)
 - `expires_at` (DateTime)
 - `confirmed_at` (DateTime, nullable)
 - `confirmed_by_user_id` (FK -> users.id, nullable)

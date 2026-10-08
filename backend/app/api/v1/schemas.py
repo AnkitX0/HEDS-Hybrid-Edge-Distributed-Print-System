@@ -115,7 +115,6 @@ class OrderResponse(BaseModel):
     estimated_wait_minutes: Optional[int] = None
     document_name: str
     document_pages: int
-    pickup_otp: Optional[str] = None  # Populated only if PICKUP_READY
     created_at: datetime
 
 

@@ -14,10 +14,6 @@ class Pickup(Base):
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Secure Salted Hashed OTP
-    otp_hash = Column(String(128), nullable=False)
-    otp_salt = Column(String(64), nullable=False)
-
     expires_at = Column(DateTime(timezone=True), nullable=False)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     confirmed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

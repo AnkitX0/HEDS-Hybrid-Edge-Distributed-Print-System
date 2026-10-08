@@ -438,13 +438,6 @@ async def get_order_by_token(guest_token: str, db: AsyncSession = Depends(get_db
         queue_pos = 0
         estimated_wait = 1
 
-    # OTP is exposed only when state is PICKUP_READY or COMPLETED
-    plain_otp = None
-    if order.status in [OrderState.PICKUP_READY, OrderState.COMPLETED]:
-        # Student bearer can see their pickup code
-        if order.pickup and hasattr(order.pickup, "otp_hash"):
-            plain_otp = getattr(order, "_last_plain_otp", None)
-
     return OrderResponse(
         id=str(order.id),
         order_number=order.order_number,
@@ -458,7 +451,6 @@ async def get_order_by_token(guest_token: str, db: AsyncSession = Depends(get_db
         estimated_wait_minutes=estimated_wait,
         document_name=order.document.original_filename if order.document else "document.pdf",
         document_pages=order.document.page_count if order.document else 1,
-        pickup_otp=plain_otp,
         created_at=order.created_at,
     )
 
@@ -493,7 +485,6 @@ async def stream_order_events(guest_token: str):
                     break
 
                 curr_status = order.status.value
-                plain_otp = getattr(order, "_last_plain_otp", None)
 
                 if curr_status != last_status:
                     last_status = curr_status
@@ -501,7 +492,6 @@ async def stream_order_events(guest_token: str):
                         "id": str(order.id),
                         "order_number": order.order_number,
                         "status": curr_status,
-                        "pickup_otp": plain_otp,
                         "total_amount_cents": order.total_amount_cents,
                     }
                     yield f"event: status\ndata: {json.dumps(payload)}\n\n"

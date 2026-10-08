@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
-from app.core.security import generate_guest_order_token, hash_pickup_otp
+from app.core.security import generate_guest_order_token
 from app.core.logging import logger
 from app.models import (
     Shop,
@@ -115,36 +115,17 @@ async def run_demo_print_lifecycle(order_id: uuid.UUID, job_id: uuid.UUID):
                 reason="Physical printing completed by hardware adapter",
             )
 
-            # Engage Privacy Hold & generate OTP
-            plain_otp = "482913"
-            otp_h, otp_s = hash_pickup_otp(plain_otp)
-            pickup = Pickup(
-                order_id=job.order.id,
-                shop_id=job.shop_id,
-                otp_hash=otp_h,
-                otp_salt=otp_s,
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-            )
-            session.add(pickup)
-
-            await OrderStateMachine.transition(
-                session=session,
-                order=job.order,
-                target_state=OrderState.PICKUP_READY,
-                actor_type="SYSTEM",
-                reason="Print completed; privacy hold engaged pending student pickup verification",
-            )
-
-            job.order._last_plain_otp = plain_otp
+            # Prepare order for counter pickup
+            await pickup_service.prepare_for_pickup(session=session, order=job.order)
 
             audit2 = AuditLog(
                 shop_id=job.shop_id,
                 actor_type="SYSTEM",
                 actor_id="PickupService",
-                action="PRIVACY_HOLD_ENGAGED",
+                action="ORDER_READY_FOR_PICKUP",
                 resource_type="Order",
                 resource_id=job.order.order_number,
-                metadata_json={"otp_ready": True, "note": f"Job {job.order.order_number} moved to pickup hold"},
+                metadata_json={"token": job.order.order_number, "note": f"Job {job.order.order_number} ready for counter pickup"},
             )
             session.add(audit2)
             await session.commit()

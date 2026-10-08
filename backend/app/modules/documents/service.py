@@ -103,6 +103,12 @@ def convert_and_inspect_document(
             raise HEDSException(code="INVALID_DOCUMENT", message=f"Corrupted or invalid image file: {str(e)}")
 
     elif ext in {".doc", ".docx"}:
+        import shutil
+        if not shutil.which("soffice"):
+            raise HEDSException(
+                code="UNSUPPORTED_FORMAT",
+                message="Server is configured for PDF and image printing. Please convert your Word document to PDF before uploading.",
+            )
         # Convert using LibreOffice headless
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, sanitize_filename(original_filename))

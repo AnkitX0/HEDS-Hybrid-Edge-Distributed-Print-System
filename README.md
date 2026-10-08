@@ -242,7 +242,17 @@ An honest evaluation of the project's engineering milestones:
 
 ---
 
-## 10. Production Roadmap
+## 10. Public QR Student Client (`apps/student-qr`)
+
+HEDS includes an isolated, mobile-first client (`apps/student-qr`) on port `3002` designed for students scanning a physical QR code outside a Xerox shop:
+- **Zero Login**: Scan flyer → Upload document → Select B&W/Color → Authoritative price → Sandbox payment → Receive print token.
+- **Two Front Doors, One Backend**: The shopkeeper uses the laptop dashboard (`:3001`), while students use the mobile QR storefront (`:3002`), sharing the exact same PostgreSQL queue, pricing engine, edge print agent, and printer adapter.
+- **Token Pickup**: Direct pickup identifier (e.g., `#51`) without OTP or passwords.
+- For complete setup and tunnel testing details, see [docs/public-qr-client.md](docs/public-qr-client.md).
+
+---
+
+## 11. Production Roadmap
 
 Prioritized production gates before enterprise or live campus deployment:
 
@@ -263,8 +273,9 @@ Prioritized production gates before enterprise or live campus deployment:
 
 ---
 
-## 11. Documentation Directory
+## 12. Documentation Directory
 
+- [docs/public-qr-client.md](docs/public-qr-client.md) — Public QR mobile client architecture, ports, tunnels, and mobile testing.
 - [docs/architecture.md](docs/architecture.md) — Comprehensive system topology, cloud-to-edge protocol.
 - [docs/frontend-architecture.md](docs/frontend-architecture.md) — Design system, UI components, state management, and real-time streams.
 - [docs/realtime-architecture.md](docs/realtime-architecture.md) — Server-Sent Events (SSE) and resilient polling fallback.

@@ -166,7 +166,7 @@ class JobStatusUpdateRequest(BaseModel):
 class PickupConfirmRequest(BaseModel):
     order_id: Optional[str] = None
     order_number: Optional[str] = None
-    otp: str
+    otp: Optional[str] = None
 
 
 # Operator Actions

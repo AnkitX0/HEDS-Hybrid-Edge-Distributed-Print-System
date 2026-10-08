@@ -1,22 +1,32 @@
 import React from "react";
-import { Inbox } from "lucide-react";
+import { LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface EmptyStateProps {
+  icon?: LucideIcon;
   title: string;
-  description: string;
+  description?: string;
   action?: React.ReactNode;
-  icon?: React.ReactNode;
+  className?: string;
 }
 
-export function EmptyState({ title, description, action, icon }: EmptyStateProps) {
+export const EmptyState: React.FC<EmptyStateProps> = ({
+  icon: Icon,
+  title,
+  description,
+  action,
+  className,
+}) => {
   return (
-    <div className="flex flex-col items-center justify-center p-8 text-center max-w-sm mx-auto space-y-2">
-      <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mb-1">
-        {icon || <Inbox className="w-5 h-5 text-slate-400" />}
-      </div>
-      <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-      <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
-      {action && <div className="pt-2">{action}</div>}
+    <div className={cn("flex flex-col items-center justify-center p-8 text-center bg-white border border-dashed border-slate-200 rounded-md", className)}>
+      {Icon && (
+        <div className="p-2.5 bg-slate-100 rounded-full text-slate-500 mb-2.5">
+          <Icon className="w-5 h-5 text-slate-600" />
+        </div>
+      )}
+      <h4 className="text-xs font-semibold text-slate-900">{title}</h4>
+      {description && <p className="text-xs text-slate-500 mt-0.5 max-w-sm">{description}</p>}
+      {action && <div className="mt-3.5">{action}</div>}
     </div>
   );
-}
+};

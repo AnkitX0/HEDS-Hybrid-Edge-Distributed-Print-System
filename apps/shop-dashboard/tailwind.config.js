@@ -8,14 +8,25 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        slate: {
-          850: "#15202b",
-          950: "#090d16",
+        heds: {
+          blue: "#2563eb",
+          "blue-hover": "#1d4ed8",
+          dark: "#0f172a",
+          muted: "#64748b",
+          bg: "#f8fafc",
+          surface: "#ffffff",
+          border: "#e2e8f0",
+          success: "#059669",
+          warning: "#d97706",
+          danger: "#dc2626",
+          info: "#0284c7",
         },
-        brand: {
-          500: "#2563eb",
-          600: "#1d4ed8",
-        },
+      },
+      borderRadius: {
+        DEFAULT: "8px",
+        sm: "6px",
+        md: "8px",
+        lg: "10px",
       },
     },
   },

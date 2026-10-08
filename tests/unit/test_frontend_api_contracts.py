@@ -65,6 +65,17 @@ async def test_operator_login_invalid_credentials_returns_clean_json_401():
 
 @pytest.mark.asyncio
 async def test_anonymous_student_order_creation_no_auth_header():
+    # Ensure queue is unpaused
+    from app.core.database import AsyncSessionLocal
+    from sqlalchemy import select
+    from app.models import Shop
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))
+        s = res.scalar_one_or_none()
+        if s and s.is_queue_paused:
+            s.is_queue_paused = False
+            await session.commit()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Create anonymous order with real valid PDF upload
@@ -169,4 +180,36 @@ async def test_student_document_upload_and_authoritative_quote_workflow():
         ord_data = ord_res.json()
         assert ord_data["document_pages"] == 11
         assert ord_data["total_amount_cents"] == 1100
+
+
+@pytest.mark.asyncio
+async def test_readiness_endpoint_healthy():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/v1/readiness")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "ready"
+        assert data["database"] == "connected"
+
+
+@pytest.mark.asyncio
+async def test_dev_endpoint_disabled_in_production():
+    from app.core.config import settings
+    orig_env = settings.ENVIRONMENT
+    orig_app_env = settings.APP_ENV
+    try:
+        settings.ENVIRONMENT = "production"
+        settings.APP_ENV = "production"
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.post("/api/v1/dev/demo-print")
+            assert res.status_code == 403
+            data = res.json()
+            assert "detail" in data
+            assert "disabled" in data["detail"].lower()
+    finally:
+        settings.ENVIRONMENT = orig_env
+        settings.APP_ENV = orig_app_env
+
 

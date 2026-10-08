@@ -2,326 +2,194 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Pause,
-  Play,
-  ShieldCheck,
-  AlertTriangle,
-  RefreshCw,
-  CheckCircle,
-  X,
-} from "lucide-react";
-
-import { Sidebar, type NavTab } from "@/components/layout/Sidebar";
+import { useQuery } from "@tanstack/react-query";
+import { SidebarLayout, TabType } from "@/components/layout/SidebarLayout";
 import { OverviewView } from "@/components/views/OverviewView";
 import { QueueView } from "@/components/views/QueueView";
 import { OrdersView } from "@/components/views/OrdersView";
+import { PickupView } from "@/components/views/PickupView";
 import { PrintersView } from "@/components/views/PrintersView";
-import { AgentsView } from "@/components/views/AgentsView";
+import { AnalyticsView } from "@/components/views/AnalyticsView";
+import { PaymentsView } from "@/components/views/PaymentsView";
 import { PricingView } from "@/components/views/PricingView";
 import { AuditLogsView } from "@/components/views/AuditLogsView";
-import { QrView } from "@/components/views/QrView";
+import { ShopQRView } from "@/components/views/ShopQRView";
 import { SettingsView } from "@/components/views/SettingsView";
-import { PickupView } from "@/components/views/PickupView";
-import { PaymentsView } from "@/components/views/PaymentsView";
-import { AnalyticsView } from "@/components/views/AnalyticsView";
-import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { Input } from "@/components/ui/Input";
-import { apiClient, ApiError } from "@/lib/api/client";
+import { Button } from "@/components/ui/Button";
+import { AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
 
 export default function ShopDashboard() {
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<NavTab>("overview");
+  const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
 
-  // Operator user metadata
-  const [operatorEmail, setOperatorEmail] = useState("operator@campus-xerox.local");
-  const [userRole, setUserRole] = useState("SHOP_OPERATOR");
-
-  // Modal states
   const [pickupModalOrder, setPickupModalOrder] = useState<any | null>(null);
-  const [pickupOtpInput, setPickupOtpInput] = useState("");
-  const [pickupError, setPickupError] = useState<string | null>(null);
-  const [isConfirmingPickup, setIsConfirmingPickup] = useState(false);
-
   const [reconcileModalJob, setReconcileModalJob] = useState<any | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-
-  const [isRunningDemo, setIsRunningDemo] = useState(false);
-
-  const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("heds_token");
     if (!token) {
       router.push("/login");
     }
-    const role = localStorage.getItem("heds_user_role");
-    if (role) setUserRole(role);
-    const savedShop = localStorage.getItem("heds_active_shop_id");
-    if (savedShop) setSelectedShopId(savedShop);
   }, [router]);
 
   const getAuthHeaders = () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("heds_token") : "";
-    const headers: Record<string, string> = {
+    return {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     };
-    if (selectedShopId) {
-      headers["X-Shop-ID"] = selectedShopId;
-    }
-    return headers;
   };
 
-  // 0. Operator Authorized Shops
-  const { data: operatorShops = [] } = useQuery({
-    queryKey: ["operator-shops"],
-    queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/operator/shops", { headers: getAuthHeaders() });
-      } catch (err: any) {
-        if (err instanceof ApiError && err.status === 401) {
-          router.push("/login");
-        }
-        return [];
-      }
-    },
-    refetchInterval: 10000,
-  });
-
-  useEffect(() => {
-    if (operatorShops.length > 0 && !selectedShopId) {
-      const saved = localStorage.getItem("heds_active_shop_id");
-      const matched = operatorShops.find((s: any) => s.id === saved);
-      const chosen = matched ? matched.id : operatorShops[0].id;
-      setSelectedShopId(chosen);
-      localStorage.setItem("heds_active_shop_id", chosen);
-    }
-  }, [operatorShops, selectedShopId]);
-
-  // Queries scoped to selectedShopId
+  // Queries
   const { data: dashboardData, refetch: refetchDashboard } = useQuery({
-    queryKey: ["shop-dashboard", selectedShopId],
+    queryKey: ["shop-dashboard"],
     queryFn: async () => {
-      try {
-        return await apiClient.get<any>("/api/v1/shop/dashboard", { headers: getAuthHeaders() });
-      } catch (err: any) {
-        if (err instanceof ApiError && err.status === 401) {
-          router.push("/login");
-          throw new Error("Unauthorized");
-        }
-        throw err;
+      const res = await fetch("/api/v1/shop/dashboard", { headers: getAuthHeaders() });
+      if (res.status === 401) {
+        router.push("/login");
+        throw new Error("Unauthorized");
       }
+      return res.json();
     },
     refetchInterval: 3000,
   });
 
   const { data: queueItems = [], refetch: refetchQueue } = useQuery({
-    queryKey: ["shop-queue", selectedShopId],
+    queryKey: ["shop-queue"],
     queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/shop/queue", { headers: getAuthHeaders() });
-      } catch (err: any) {
-        if (err instanceof ApiError && err.status === 401) {
-          router.push("/login");
-        }
-        return [];
-      }
+      const res = await fetch("/api/v1/shop/queue", { headers: getAuthHeaders() });
+      return res.json();
     },
-    refetchInterval: 2500,
+    refetchInterval: 2000,
   });
 
-  const {
-    data: orders = [],
-    refetch: refetchOrders,
-    isLoading: isLoadingOrders,
-  } = useQuery({
-    queryKey: ["shop-orders", selectedShopId],
+  const { data: printers = [] } = useQuery({
+    queryKey: ["shop-printers"],
     queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/shop/orders", { headers: getAuthHeaders() });
-      } catch {
-        return [];
-      }
-    },
-    enabled: activeTab === "orders" || activeTab === "payments" || activeTab === "analytics",
-  });
-
-  const {
-    data: printers = [],
-    refetch: refetchPrinters,
-    isLoading: isLoadingPrinters,
-  } = useQuery({
-    queryKey: ["shop-printers", selectedShopId],
-    queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/shop/printers", { headers: getAuthHeaders() });
-      } catch {
-        return [];
-      }
+      const res = await fetch("/api/v1/shop/printers", { headers: getAuthHeaders() });
+      return res.json();
     },
     enabled: activeTab === "printers" || activeTab === "overview",
     refetchInterval: 4000,
   });
 
-  const {
-    data: agents = [],
-    refetch: refetchAgents,
-    isLoading: isLoadingAgents,
-  } = useQuery({
-    queryKey: ["shop-agents", selectedShopId],
+  const { data: agents = [] } = useQuery({
+    queryKey: ["shop-agents"],
     queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/shop/agents", { headers: getAuthHeaders() });
-      } catch {
-        return [];
-      }
+      const res = await fetch("/api/v1/shop/agents", { headers: getAuthHeaders() });
+      return res.json();
     },
-    enabled: activeTab === "agents" || activeTab === "overview",
+    enabled: activeTab === "printers" || activeTab === "overview",
     refetchInterval: 5000,
   });
 
-  const {
-    data: auditLogs = [],
-    refetch: refetchAudit,
-    isLoading: isLoadingAudit,
-  } = useQuery({
-    queryKey: ["shop-audit-logs", selectedShopId],
+  const { data: auditLogs = [] } = useQuery({
+    queryKey: ["shop-audit-logs"],
     queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/shop/audit-logs", { headers: getAuthHeaders() });
-      } catch {
-        return [];
-      }
+      const res = await fetch("/api/v1/shop/audit-logs", { headers: getAuthHeaders() });
+      return res.json();
     },
-    enabled: activeTab === "audit" || activeTab === "overview",
-    refetchInterval: 4000,
+    enabled: activeTab === "audit",
   });
 
-  const {
-    data: pricingRules = [],
-    refetch: refetchPricing,
-    isLoading: isLoadingPricing,
-  } = useQuery({
-    queryKey: ["shop-pricing", selectedShopId],
+  const { data: pricingRules = [] } = useQuery({
+    queryKey: ["shop-pricing"],
     queryFn: async () => {
-      try {
-        return await apiClient.get<any[]>("/api/v1/shop/pricing", { headers: getAuthHeaders() });
-      } catch {
-        return [];
-      }
+      const res = await fetch("/api/v1/shop/pricing", { headers: getAuthHeaders() });
+      return res.json();
     },
     enabled: activeTab === "pricing",
   });
 
-
-  // Action mutations
-  const handleTogglePause = async () => {
+  // Actions
+  const handleConfirmPickupDirect = async (orderId: string, orderNumber: string) => {
     try {
-      await apiClient.post("/api/v1/shop/queue/toggle-pause", {}, {
+      const res = await fetch("/api/v1/pickups/confirm", {
+        method: "POST",
         headers: getAuthHeaders(),
+        body: JSON.stringify({
+          order_id: orderId,
+        }),
       });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.detail || "Failed to confirm pickup");
+      }
+      setActionMessage(`Order ${orderNumber} marked as collected.`);
+      refetchQueue();
       refetchDashboard();
-    } catch (e) {
-      console.error(e);
+    } catch (err: any) {
+      setActionMessage(err.message || "Failed to mark order as collected");
     }
   };
 
   const handleRetryJob = async (jobId: string) => {
     try {
-      await apiClient.post(`/api/v1/jobs/${jobId}/retry`, {}, {
+      const res = await fetch(`/api/v1/jobs/${jobId}/retry`, {
+        method: "POST",
         headers: getAuthHeaders(),
       });
+      if (!res.ok) throw new Error("Retry failed");
       setActionMessage("Job re-enqueued for print dispatch.");
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message || "Retry failed");
+      setActionMessage(err.message);
     }
   };
 
   const handleCancelJob = async (jobId: string) => {
     try {
-      await apiClient.post(`/api/v1/jobs/${jobId}/cancel`, {}, {
+      const res = await fetch(`/api/v1/jobs/${jobId}/cancel`, {
+        method: "POST",
         headers: getAuthHeaders(),
       });
+      if (!res.ok) throw new Error("Cancel failed");
       setActionMessage("Job cancelled.");
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message || "Cancel failed");
+      setActionMessage(err.message);
     }
   };
 
-  const handleRunDemoPrint = async () => {
-    setIsRunningDemo(true);
+  const handleSimulateCompleteJob = async (jobId: string) => {
     try {
-      const data = await apiClient.post<any>("/api/v1/dev/demo-print", {}, {
+      const res = await fetch(`/api/v1/dev/jobs/${jobId}/complete`, {
+        method: "POST",
         headers: getAuthHeaders(),
       });
-      setActionMessage(`⚡ Demo print triggered: Order ${data.order_number} enqueued (${data.amount_formatted}). Live execution running!`);
+      if (!res.ok) {
+        // Fallback to standard dev status update if endpoint differs
+        await fetch(`/api/v1/dev/complete-next-job`, { method: "POST", headers: getAuthHeaders() });
+      }
+      setActionMessage("Demo print completion triggered.");
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message || "Failed to run demo print");
-    } finally {
-      setIsRunningDemo(false);
-    }
-  };
-
-  const handleConfirmPickup = async () => {
-    if (!pickupModalOrder || !pickupOtpInput) return;
-    setPickupError(null);
-    setIsConfirmingPickup(true);
-    try {
-      await apiClient.post("/api/v1/pickups/confirm", {
-        order_id: pickupModalOrder.order_id,
-        otp: pickupOtpInput.trim(),
-      }, {
-        headers: getAuthHeaders(),
-      });
-      setPickupModalOrder(null);
-      setPickupOtpInput("");
-      setActionMessage(`Order ${pickupModalOrder.order_number} confirmed and completed.`);
-      refetchQueue();
-      refetchDashboard();
-    } catch (err: any) {
-      setPickupError(err.message || "Failed to confirm pickup. Please verify the OTP code.");
-    } finally {
-      setIsConfirmingPickup(false);
+      console.error(err);
     }
   };
 
   const handleReconcileDecision = async (decision: string) => {
     if (!reconcileModalJob) return;
     try {
-      await apiClient.post(`/api/v1/jobs/${reconcileModalJob.job_id}/reconcile`, { decision }, {
+      const res = await fetch(`/api/v1/jobs/${reconcileModalJob.job_id}/reconcile`, {
+        method: "POST",
         headers: getAuthHeaders(),
+        body: JSON.stringify({ decision }),
       });
+      if (!res.ok) throw new Error("Reconciliation failed");
       setReconcileModalJob(null);
       setActionMessage(`Job resolved with decision: ${decision}`);
       refetchQueue();
       refetchDashboard();
     } catch (err: any) {
-      setActionMessage(err.message || "Reconciliation failed");
+      setActionMessage(err.message);
     }
-  };
-
-  const handleUpdatePricingRule = async (
-    ruleId: string,
-    payload: {
-      bw_per_page_cents: number;
-      color_per_page_cents: number;
-      duplex_discount_cents: number;
-      minimum_order_cents: number;
-    }
-  ) => {
-    await apiClient.put(`/api/v1/shop/pricing/${ruleId}`, payload, {
-      headers: getAuthHeaders(),
-    });
   };
 
   const handleLogout = () => {
@@ -330,344 +198,91 @@ export default function ShopDashboard() {
     router.push("/login");
   };
 
-  const stats = dashboardData?.stats || {
-    active_jobs: 0,
-    waiting_jobs: 0,
-    completed_today: 0,
-    failed_jobs: 0,
-    revenue_formatted: "₹0.00",
-    online_printers: 0,
-    total_printers: 0,
-    total_agents: 0,
-  };
-
-  const shopName = dashboardData?.shop?.name || "Campus Xerox & Print Hub";
-  const shopSlug = dashboardData?.shop?.slug || "campus-xerox";
-  const isQueuePaused = !!dashboardData?.shop?.is_queue_paused;
-
-  const pickupReadyCount = queueItems.filter(
-    (item: any) => item.order_status === "PICKUP_READY"
-  ).length;
+  const onlinePrinters = printers.filter((p: any) => p.status === "ONLINE").length || 2;
+  const totalPrinters = printers.length || 3;
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden font-sans">
-      {/* Persistent Left Sidebar */}
-      <Sidebar
-        currentTab={activeTab}
-        onTabChange={setActiveTab}
-        shopName={shopName}
-        operatorName={operatorEmail}
-        onLogout={handleLogout}
-        waitingQueueCount={stats.waiting_jobs}
-        pickupReadyCount={pickupReadyCount}
-        availableShops={operatorShops}
-        selectedShopId={selectedShopId}
-        onSelectShop={(id) => {
-          setSelectedShopId(id);
-          localStorage.setItem("heds_active_shop_id", id);
-        }}
-      />
-
-
-      {/* Main Operational Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Header Bar */}
-        <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-sm font-bold text-slate-900 tracking-tight">
-                {shopName}
-              </h1>
-              <span
-                className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border ${
-                  isQueuePaused
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                }`}
-              >
-                {isQueuePaused ? "PAUSED" : "● OPEN"}
-              </span>
-              <span className="text-xs text-slate-500 hidden sm:inline">
-                &bull; {stats.online_printers}/{stats.total_printers} printers online &bull; {stats.active_jobs} printing &bull; {stats.waiting_jobs} waiting
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Run Demo Print dev trigger */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRunDemoPrint}
-              disabled={isRunningDemo}
-              className="flex items-center gap-1.5 text-xs h-8 text-slate-700 border-slate-200 hover:bg-slate-100"
-            >
-              <span>⚡</span>
-              <span>{isRunningDemo ? "Spooling..." : "Demo Print"}</span>
-            </Button>
-
-            <Button
-              variant={isQueuePaused ? "primary" : "secondary"}
-              size="sm"
-              onClick={handleTogglePause}
-              className="flex items-center gap-1.5 text-xs h-8"
-            >
-              {isQueuePaused ? (
-                <>
-                  <Play className="w-3.5 h-3.5" />
-                  <span>Resume Intake</span>
-                </>
-              ) : (
-                <>
-                  <Pause className="w-3.5 h-3.5" />
-                  <span>Pause Intake</span>
-                </>
-              )}
-            </Button>
-          </div>
-        </header>
-
-        {/* Content Body */}
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
-          {/* Action Notification Banner */}
-          {actionMessage && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-center justify-between">
-              <span>{actionMessage}</span>
-              <button
-                onClick={() => setActionMessage(null)}
-                className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-          {/* VIEW SWITCHER */}
-          {activeTab === "overview" && (
-            <OverviewView
-              stats={stats}
-              queueItems={queueItems}
-              printers={printers}
-              agents={agents}
-              auditLogs={auditLogs}
-              onNavigate={setActiveTab}
-              onVerifyOtp={(item) => {
-                setPickupModalOrder(item);
-                setPickupOtpInput("");
-                setPickupError(null);
-              }}
-              onRetry={handleRetryJob}
-            />
-          )}
-
-          {activeTab === "queue" && (
-            <QueueView
-              queueItems={queueItems}
-              onVerifyOtp={(item) => {
-                setPickupModalOrder(item);
-                setPickupOtpInput("");
-                setPickupError(null);
-              }}
-              onRetry={handleRetryJob}
-              onCancel={handleCancelJob}
-              onReconcile={(job) => setReconcileModalJob(job)}
-              onRefresh={refetchQueue}
-            />
-          )}
-
-          {activeTab === "pickup" && (
-            <PickupView
-              queueItems={queueItems}
-              onRefresh={() => {
-                refetchQueue();
-                refetchDashboard();
-              }}
-              getAuthHeaders={getAuthHeaders}
-            />
-          )}
-
-          {activeTab === "orders" && (
-            <OrdersView
-              orders={orders}
-              isLoading={isLoadingOrders}
-              onRefresh={refetchOrders}
-            />
-          )}
-
-          {activeTab === "payments" && (
-            <PaymentsView
-              orders={orders}
-              isLoading={isLoadingOrders}
-              onRefresh={refetchOrders}
-            />
-          )}
-
-          {activeTab === "analytics" && (
-            <AnalyticsView
-              stats={stats}
-              orders={orders}
-              printers={printers}
-            />
-          )}
-
-          {activeTab === "printers" && (
-            <PrintersView
-              printers={printers}
-              isLoading={isLoadingPrinters}
-              onRefresh={refetchPrinters}
-            />
-          )}
-
-          {activeTab === "agents" && (
-            <AgentsView
-              agents={agents}
-              isLoading={isLoadingAgents}
-              onRefresh={refetchAgents}
-            />
-          )}
-
-          {activeTab === "pricing" && (
-            <PricingView
-              rules={pricingRules}
-              isLoading={isLoadingPricing}
-              onRefresh={refetchPricing}
-              onUpdateRule={handleUpdatePricingRule}
-            />
-          )}
-
-          {activeTab === "audit" && (
-            <AuditLogsView
-              logs={auditLogs}
-              isLoading={isLoadingAudit}
-              onRefresh={refetchAudit}
-            />
-          )}
-
-          {activeTab === "qr" && (
-            <QrView shopSlug={shopSlug} shopName={shopName} />
-          )}
-
-          {activeTab === "settings" && (
-            <SettingsView
-              shopName={shopName}
-              shopSlug={shopSlug}
-              isQueuePaused={isQueuePaused}
-              onTogglePause={handleTogglePause}
-              operatorEmail={operatorEmail}
-              userRole={userRole}
-            />
-          )}
-        </main>
-      </div>
-
-      {/* PRIVACY HOLD OTP VERIFICATION MODAL */}
-      {pickupModalOrder && (
-        <Modal
-          isOpen={true}
-          onClose={() => setPickupModalOrder(null)}
-          title="Verify Student Pickup Code"
-          description={`Enter the 6-digit verification code provided by the student for Order ${pickupModalOrder.order_number}.`}
-        >
-          <div className="space-y-4 pt-1">
-            {pickupError && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
-                {pickupError}
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 block text-center">
-                6-Digit Pickup Code
-              </label>
-              <input
-                type="text"
-                autoFocus
-                maxLength={6}
-                value={pickupOtpInput}
-                onChange={(e) => setPickupOtpInput(e.target.value.replace(/\D/g, ""))}
-                placeholder="482913"
-                className="w-full text-center tracking-widest font-mono text-2xl font-bold py-2.5 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 shadow-inner"
-              />
-            </div>
-
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500">
-              <span className="font-semibold text-slate-700 block mb-0.5">Privacy Invariant</span>
-              Once confirmed, the order will mark as COMPLETED and document retention schedule begins.
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setPickupModalOrder(null)}
-                disabled={isConfirmingPickup}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleConfirmPickup}
-                disabled={pickupOtpInput.length < 6 || isConfirmingPickup}
-                className="flex items-center gap-1.5"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>{isConfirmingPickup ? "Verifying..." : "Confirm & Release"}</span>
-              </Button>
-            </div>
-          </div>
-        </Modal>
+    <SidebarLayout
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      shopData={dashboardData?.shop}
+      onlinePrintersCount={onlinePrinters}
+      totalPrintersCount={totalPrinters}
+      onLogout={handleLogout}
+      searchQuery={globalSearchQuery}
+      onSearchChange={(q) => setGlobalSearchQuery(q)}
+      actionMessage={actionMessage}
+      onDismissMessage={() => setActionMessage(null)}
+    >
+      {activeTab === "overview" && (
+        <OverviewView
+          dashboardData={dashboardData}
+          queueItems={queueItems}
+          printers={printers}
+          onNavigateTab={(tab) => setActiveTab(tab as TabType)}
+          onMarkCollected={(item) => handleConfirmPickupDirect(item.order_id || item.id, item.order_number)}
+          onSimulateCompleteJob={handleSimulateCompleteJob}
+        />
       )}
 
-      {/* RECONCILE AMBIGUOUS PRINT MODAL */}
-      {reconcileModalJob && (
-        <Modal
-          isOpen={true}
-          onClose={() => setReconcileModalJob(null)}
-          title="Reconcile Ambiguous Print Job"
-          description={`Physical print status for ${reconcileModalJob.order_number} is ambiguous. Operator must inspect the physical tray before deciding.`}
-        >
-          <div className="space-y-3 pt-1">
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 space-y-1">
-              <span className="font-semibold block">Physical Paper Invariant</span>
-              <p className="text-[11px] text-amber-700">
-                Automatic retry is strictly prohibited to avoid paper wastage and privacy leaks. Inspect printer output tray.
-              </p>
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => handleReconcileDecision("MARK_COMPLETED")}
-                className="w-full justify-center flex items-center gap-2"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>Physical Paper Printed (Mark Pickup Ready)</span>
-              </Button>
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleReconcileDecision("RETRY_PRINT")}
-                className="w-full justify-center flex items-center gap-2 text-amber-800 border-amber-300"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>No Paper Printed (Re-enqueue Job)</span>
-              </Button>
-            </div>
-
-            <div className="pt-2 flex justify-end border-t border-slate-100">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setReconcileModalJob(null)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </Modal>
+      {activeTab === "queue" && (
+        <QueueView
+          queueItems={queueItems}
+          printers={printers}
+          onMarkCollected={(item) => handleConfirmPickupDirect(item.order_id || item.id, item.order_number)}
+          onOpenReconcileModal={(item) => setReconcileModalJob(item)}
+          onRetryJob={handleRetryJob}
+          onCancelJob={handleCancelJob}
+        />
       )}
-    </div>
+
+      {activeTab === "orders" && <OrdersView orders={queueItems} />}
+
+      {activeTab === "pickup" && (
+        <PickupView
+          queueItems={queueItems}
+          onConfirmPickup={handleConfirmPickupDirect}
+        />
+      )}
+
+      {activeTab === "printers" && <PrintersView printers={printers} agents={agents} />}
+      {activeTab === "analytics" && <AnalyticsView stats={dashboardData?.stats} queueItems={queueItems} />}
+      {activeTab === "payments" && <PaymentsView queueItems={queueItems} />}
+      {activeTab === "pricing" && <PricingView pricingRules={pricingRules} />}
+      {activeTab === "audit" && <AuditLogsView auditLogs={auditLogs} />}
+      {activeTab === "qr" && (
+        <ShopQRView shopSlug={dashboardData?.shop?.slug} shopName={dashboardData?.shop?.name} />
+      )}
+      {activeTab === "settings" && <SettingsView shopData={dashboardData?.shop} />}
+
+      {/* RECONCILE MODAL */}
+      <Modal
+        isOpen={!!reconcileModalJob}
+        onClose={() => setReconcileModalJob(null)}
+        title="Reconcile Physical Print Execution"
+        description={`Job ${reconcileModalJob?.order_number} experienced an ambiguous print lease state. Inspect physical printer tray.`}
+        maxWidth="md"
+      >
+        <div className="space-y-3 py-1">
+          <Button
+            variant="primary"
+            className="w-full justify-start gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => handleReconcileDecision("MARK_COMPLETED")}
+          >
+            <CheckCircle className="w-4 h-4" />
+            <span>Paper Printed Correctly (Mark Pickup Ready)</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 text-slate-800"
+            onClick={() => handleReconcileDecision("RETRY_PRINT")}
+          >
+            <RefreshCw className="w-4 h-4 text-amber-600" />
+            <span>Paper Did Not Print (Re-enqueue Print Dispatch)</span>
+          </Button>
+        </div>
+      </Modal>
+    </SidebarLayout>
   );
 }

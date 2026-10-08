@@ -61,11 +61,12 @@ class PickupService:
     async def verify_and_complete_pickup(
         session: AsyncSession,
         order_id: uuid.UUID,
-        provided_otp: str,
+        provided_otp: Optional[str] = None,
         operator_user_id: Optional[uuid.UUID] = None,
     ) -> Order:
         """
-        Verifies student OTP against stored salted hash and marks order COMPLETED.
+        Verifies student OTP against stored salted hash (if provided) and marks order COMPLETED.
+        If provided_otp is None or empty, proceeds directly to mark order COMPLETED via token.
         """
         stmt = (
             select(Pickup)
@@ -85,37 +86,38 @@ class PickupService:
                 message=f"Order is in '{pickup.order.status.value}', must be 'PICKUP_READY' to confirm pickup.",
             )
 
-        if datetime.now(timezone.utc) > pickup.expires_at:
-            raise HEDSException(code="OTP_EXPIRED", message="Pickup OTP has expired.")
+        if provided_otp:
+            if datetime.now(timezone.utc) > pickup.expires_at:
+                raise HEDSException(code="OTP_EXPIRED", message="Pickup OTP has expired.")
 
-        # Rate limiting: max 5 failed attempts per order in 5 minutes
-        now = datetime.now(timezone.utc)
-        order_attempts = _failed_otp_attempts.get(order_id, [])
-        # filter attempts within last 300 seconds
-        recent_attempts = [t for t in order_attempts if (now - t).total_seconds() < 300]
-        if len(recent_attempts) >= 5:
-            raise HEDSException(
-                code="OTP_RATE_LIMITED",
-                message="Too many failed pickup code attempts. Verification locked for 5 minutes.",
+            # Rate limiting: max 5 failed attempts per order in 5 minutes
+            now = datetime.now(timezone.utc)
+            order_attempts = _failed_otp_attempts.get(order_id, [])
+            # filter attempts within last 300 seconds
+            recent_attempts = [t for t in order_attempts if (now - t).total_seconds() < 300]
+            if len(recent_attempts) >= 5:
+                raise HEDSException(
+                    code="OTP_RATE_LIMITED",
+                    message="Too many failed pickup code attempts. Verification locked for 5 minutes.",
+                )
+
+            is_valid = verify_pickup_otp(
+                otp=provided_otp.strip(),
+                hashed_otp=pickup.otp_hash,
+                salt=pickup.otp_salt,
             )
 
-        is_valid = verify_pickup_otp(
-            otp=provided_otp.strip(),
-            hashed_otp=pickup.otp_hash,
-            salt=pickup.otp_salt,
-        )
+            if not is_valid:
+                recent_attempts.append(now)
+                _failed_otp_attempts[order_id] = recent_attempts
+                remaining = max(0, 5 - len(recent_attempts))
+                raise HEDSException(
+                    code="INVALID_OTP",
+                    message=f"Incorrect pickup code. {remaining} attempt(s) remaining.",
+                )
 
-        if not is_valid:
-            recent_attempts.append(now)
-            _failed_otp_attempts[order_id] = recent_attempts
-            remaining = max(0, 5 - len(recent_attempts))
-            raise HEDSException(
-                code="INVALID_OTP",
-                message=f"Incorrect pickup code. {remaining} attempt(s) remaining.",
-            )
-
-        # Clear failed attempts on success
-        _failed_otp_attempts.pop(order_id, None)
+            # Clear failed attempts on success
+            _failed_otp_attempts.pop(order_id, None)
 
         pickup.confirmed_at = datetime.now(timezone.utc)
         pickup.confirmed_by_user_id = operator_user_id

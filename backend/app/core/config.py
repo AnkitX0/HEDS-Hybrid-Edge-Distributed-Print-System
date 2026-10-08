@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     )
 
     APP_ENV: str = "development"
+    ENVIRONMENT: str = "development"
     DEBUG: bool = True
     PROJECT_NAME: str = "HEDS - Hybrid Edge Distributed Print System"
 

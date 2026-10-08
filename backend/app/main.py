@@ -6,6 +6,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from sqlalchemy import select
+
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.exceptions import HEDSException
@@ -132,6 +134,32 @@ async def health_check():
         "timestamp": time.time(),
         "environment": settings.APP_ENV,
     }
+
+
+@app.get("/readiness", tags=["Health"])
+@app.get("/api/v1/readiness", tags=["Health"])
+async def readiness_check():
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(select(1))
+        return {
+            "status": "ready",
+            "service": "heds-backend",
+            "database": "connected",
+            "timestamp": time.time(),
+            "environment": getattr(settings, "ENVIRONMENT", settings.APP_ENV),
+        }
+    except Exception as e:
+        logger.error(f"Readiness check failed: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "unhealthy",
+                "service": "heds-backend",
+                "database": "disconnected",
+                "detail": str(e),
+            },
+        )
 
 
 # Include Routers

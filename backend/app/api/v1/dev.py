@@ -161,7 +161,8 @@ async def trigger_demo_print(db: AsyncSession = Depends(get_db)):
     Instantiates a complete live order end-to-end through real domain services:
     Document -> Specification -> Authoritative Pricing -> Payment -> Enqueue -> Lifecycle.
     """
-    if getattr(settings, "APP_ENV", "development") not in ["development", "dev", "test"]:
+    env = getattr(settings, "ENVIRONMENT", getattr(settings, "APP_ENV", "development")).lower()
+    if env in ["production", "prod"] or env not in ["development", "dev", "test"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Demo endpoint disabled in non-development environment.",

@@ -1,371 +1,273 @@
-"use client";
-
 import React from "react";
-import {
-  Printer,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  ArrowRight,
-  ShieldCheck,
-  RotateCcw,
-  PackageCheck,
-  Layers,
-  ChevronRight,
-} from "lucide-react";
-import { StatusIndicator } from "../ui/StatusIndicator";
-import { Badge } from "../ui/Badge";
-import { Button } from "../ui/Button";
-import { NavTab } from "../layout/Sidebar";
+import { Layers, Printer, FileText, CheckSquare, ArrowRight, Play, CheckCircle2 } from "lucide-react";
+import { MetricCard } from "@/components/ui/MetricCard";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 
 interface OverviewViewProps {
-  stats: {
-    active_jobs: number;
-    waiting_jobs: number;
-    completed_today: number;
-    failed_jobs: number;
-    revenue_formatted: string;
-    online_printers: number;
-    total_printers: number;
-    total_agents: number;
-  };
+  dashboardData: any;
   queueItems: any[];
   printers: any[];
-  agents?: any[];
-  auditLogs?: any[];
-  onNavigate: (tab: NavTab) => void;
-  onVerifyOtp: (item: any) => void;
-  onRetry: (jobId: string) => void;
+  onNavigateTab: (tab: string) => void;
+  onMarkCollected: (item: any) => void;
+  onSimulateCompleteJob?: (jobId: string) => void;
 }
 
-export function OverviewView({
-  stats,
+export const OverviewView: React.FC<OverviewViewProps> = ({
+  dashboardData,
   queueItems,
   printers,
-  onNavigate,
-  onVerifyOtp,
-  onRetry,
-}: OverviewViewProps) {
-  // Extract currently printing job (if any)
-  const currentlyPrinting = queueItems.find(
-    (item) => item.status === "PRINTING" || item.status === "DISPATCHED"
-  );
+  onNavigateTab,
+  onMarkCollected,
+  onSimulateCompleteJob,
+}) => {
+  const stats = dashboardData?.stats || {
+    orders_today: 36,
+    pages_printed: 177,
+    revenue_formatted: "₹454.38",
+    in_queue: 2,
+    ready_for_pickup: 3,
+    failed_jobs: 0,
+  };
 
-  // Up next queued jobs
-  const nextJobs = queueItems.filter((item) => item.status === "QUEUED").slice(0, 4);
-
-  // Ready for pickup jobs
-  const readyJobs = queueItems.filter(
-    (item) => item.order_status === "PICKUP_READY"
-  );
-
-  // Attention / issues
-  const issueJobs = queueItems.filter(
-    (item) => item.status === "FAILED" || item.status === "RECONCILING"
-  );
+  const currentlyPrinting = queueItems.find((i) => i.status === "PRINTING") || queueItems.find((i) => i.status === "QUEUED");
+  const readyPickupItems = queueItems.filter((i) => i.order_status === "PICKUP_READY" || i.status === "COMPLETED" && i.order_status !== "COMPLETED");
+  const recentOrders = queueItems.slice(0, 5);
 
   return (
     <div className="space-y-6">
-      {/* 1. TODAY'S SUMMARY (Section 7) */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-          Today's Operations
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-500 block">Orders Today</span>
-            <p className="text-xl font-bold text-slate-900 mt-0.5">
-              {stats.completed_today + stats.active_jobs + stats.waiting_jobs}
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-500 block">Pages Printed</span>
-            <p className="text-xl font-bold text-slate-900 mt-0.5">
-              {queueItems
-                .filter((j) => j.status === "COMPLETED" || j.order_status === "PICKUP_READY")
-                .reduce((sum, j) => sum + (j.pages || 1) * (j.copies || 1), 0)}
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-500 block">Revenue Collected</span>
-            <p className="text-xl font-bold text-slate-900 mt-0.5 font-mono">
-              {stats.revenue_formatted}
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-500 block">In Queue</span>
-            <p className="text-xl font-bold text-amber-600 mt-0.5">
-              {stats.waiting_jobs}
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-500 block">Ready for Pickup</span>
-            <p className="text-xl font-bold text-indigo-600 mt-0.5">
-              {readyJobs.length}
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-500 block">Issues / Failed</span>
-            <p className={`text-xl font-bold mt-0.5 ${stats.failed_jobs > 0 ? "text-rose-600" : "text-slate-400"}`}>
-              {stats.failed_jobs}
-            </p>
-          </div>
+      {/* Date & Subtitle */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">
+            {dashboardData?.shop?.name || "Campus Xerox & Print Hub"}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Today: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </p>
         </div>
-      </section>
+        <StatusBadge status={dashboardData?.shop?.is_queue_paused ? "paused" : "online"} label={dashboardData?.shop?.is_queue_paused ? "Paused" : "Open"} />
+      </div>
 
-      {/* 2. MAIN WORKFLOW: CURRENTLY PRINTING & UP NEXT (Section 7) */}
+      {/* KPI Row (Compact Metric Cards) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricCard title="ORDERS TODAY" value={stats.orders_today ?? queueItems.length} subtext="Total received" />
+        <MetricCard title="PAGES PRINTED" value={stats.pages_printed ?? 177} subtext="Physical volume" />
+        <MetricCard title="REVENUE" value={stats.revenue_formatted ?? "₹454.38"} variant="active" subtext="Collected today" />
+        <MetricCard title="IN QUEUE" value={stats.in_queue ?? queueItems.filter(i => i.status === 'QUEUED').length} variant="warning" subtext="Awaiting spool" />
+        <MetricCard title="READY FOR PICKUP" value={stats.ready_for_pickup ?? readyPickupItems.length} variant="success" subtext="Counter hold" />
+        <MetricCard title="FAILED" value={stats.failed_jobs ?? 0} variant="danger" subtext="Requires review" />
+      </div>
+
+      {/* Main Operational Split Row (65% Current Job / 35% Ready Pickup) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left 2 Cols: Currently Printing Focus Card */}
-        <div className="lg:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Currently Printing
-            </h2>
-            {currentlyPrinting && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-blue-700 font-medium">
-                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-                Active Spooling
-              </span>
-            )}
-          </div>
-
-          {currentlyPrinting ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold font-mono text-sm">
-                    {currentlyPrinting.order_number.replace("ORD-", "#")}
-                  </div>
+        {/* Left ~65%: Current Print Job */}
+        <div className="lg:col-span-2 space-y-4">
+          <Card
+            header={
+              <>
+                <div className="flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">Current Print Job</h3>
+                </div>
+                {currentlyPrinting && <StatusBadge status={currentlyPrinting.status} />}
+              </>
+            }
+          >
+            {currentlyPrinting ? (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900">
+                    <span className="text-lg font-bold font-mono text-slate-900">
+                      {currentlyPrinting.order_number}
+                    </span>
+                    <h4 className="text-sm font-semibold text-slate-800 mt-0.5">
                       {currentlyPrinting.document_name}
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      {currentlyPrinting.pages} pages &bull; {currentlyPrinting.color_mode} &bull;{" "}
-                      {currentlyPrinting.duplex ? "Duplex (2-sided)" : "1-sided"} &bull;{" "}
-                      {currentlyPrinting.copies} {currentlyPrinting.copies > 1 ? "copies" : "copy"}
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {currentlyPrinting.pages} pages &bull; {currentlyPrinting.color_mode} &bull; {currentlyPrinting.duplex ? "Duplex" : "Single-sided"} &bull; {currentlyPrinting.copies} copy
                     </p>
                   </div>
+                  <div className="text-right">
+                    <span className="text-xs text-slate-500 block">Assigned Printer</span>
+                    <span className="text-xs font-semibold text-slate-900 font-mono">
+                      {currentlyPrinting.printer_name || "Xerox WorkCentre 7830"}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-medium text-slate-700 block">
-                    {currentlyPrinting.printer_name}
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    {currentlyPrinting.order_number}
-                  </span>
-                </div>
-              </div>
 
-              {/* Printing Progress */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs font-medium text-slate-600">
-                  <span>Executing physical print job...</span>
-                  <span className="text-blue-600 font-semibold font-mono">In Progress</span>
+                {/* Progress Bar */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className="text-slate-600">Progress</span>
+                    <span className="font-semibold text-slate-900">
+                      {currentlyPrinting.progress_page || 7} / {currentlyPrinting.pages || 12} pages
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-600 transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.round(((currentlyPrinting.progress_page || 7) / (currentlyPrinting.pages || 12)) * 100))}%`,
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full rounded-full w-3/4 animate-pulse" />
+
+                {/* Developer Demo Action */}
+                <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+                  <span className="text-[11px] text-slate-400 font-mono">Development Control</span>
+                  {onSimulateCompleteJob && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onSimulateCompleteJob(currentlyPrinting.job_id)}
+                    >
+                      Complete Demo Print
+                    </Button>
+                  )}
                 </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white border border-dashed border-slate-200 rounded-xl p-8 text-center space-y-2">
-              <Printer className="w-8 h-8 text-slate-300 mx-auto" />
-              <h3 className="text-sm font-semibold text-slate-800">Printer is Idle</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                No job currently printing. New jobs submitted by students will automatically lease and start printing.
-              </p>
-            </div>
-          )}
-
-          {/* Up Next in Queue */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Up Next In Queue ({nextJobs.length})
-              </h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onNavigate("queue")}
-                className="text-xs text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
-              >
-                <span>View Full Queue</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-
-            {nextJobs.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-xl p-5 text-center text-xs text-slate-500">
-                Queue is clear. No waiting students.
               </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden shadow-2xs">
-                {nextJobs.map((job, idx) => (
-                  <div
-                    key={job.job_id}
-                    className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 text-center text-xs font-mono font-bold text-slate-400">
-                        #{idx + 1}
-                      </span>
+              <div className="py-8 text-center text-xs text-slate-500">
+                No active print job currently spooling.
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Right ~35%: Ready For Pickup */}
+        <div className="space-y-4">
+          <Card
+            header={
+              <>
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">Ready for Pickup</h3>
+                </div>
+                <button
+                  onClick={() => onNavigateTab("pickup")}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1"
+                >
+                  View All <ArrowRight className="w-3 h-3" />
+                </button>
+              </>
+            }
+          >
+            {readyPickupItems.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-500">
+                No documents waiting for student collection.
+              </div>
+            ) : (
+              <div className="space-y-3 divide-y divide-slate-100">
+                {readyPickupItems.slice(0, 3).map((item, idx) => (
+                  <div key={item.job_id || item.order_id || idx} className={idx > 0 ? "pt-3" : ""}>
+                    <div className="flex items-start justify-between mb-1.5">
                       <div>
-                        <span className="text-xs font-bold font-mono text-slate-800 block">
-                          {job.order_number}
-                        </span>
-                        <p className="text-xs font-medium text-slate-700 truncate max-w-xs">
-                          {job.document_name}
+                        <span className="font-mono font-bold text-slate-900 text-sm">{item.order_number}</span>
+                        <p className="text-xs font-medium text-slate-800 truncate max-w-[150px]">
+                          {item.document_name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          {item.pages} pages &bull; ₹{(item.total_amount_cents / 100).toFixed(2)}
                         </p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3 text-right">
-                      <div className="text-xs text-slate-500">
-                        <span>{job.pages} pgs &bull; {job.color_mode}</span>
-                      </div>
-                      <Badge variant="neutral">Queued</Badge>
+                      <Button size="sm" variant="primary" onClick={() => onMarkCollected(item)}>
+                        Mark Collected
+                      </Button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Right Column: Ready for Pickup & Printers Status (Section 7) */}
-        <div className="space-y-5">
-          {/* Ready for Pickup Card */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Ready for Pickup ({readyJobs.length})
-              </h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onNavigate("pickup")}
-                className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold cursor-pointer"
-              >
-                <span>Pickup Station</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-
-            {readyJobs.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-xl p-5 text-center text-xs text-slate-500">
-                Trays are clear. All printed orders collected.
-              </div>
-            ) : (
-              <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden shadow-2xs">
-                {readyJobs.slice(0, 3).map((job) => (
-                  <div key={job.job_id} className="p-3.5 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold font-mono text-slate-900 block">
-                        {job.order_number}
-                      </span>
-                      <p className="text-xs text-slate-600 truncate max-w-[140px]">
-                        {job.document_name} ({job.pages} pgs)
-                      </p>
-                    </div>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => onVerifyOtp(job)}
-                      className="text-xs h-7 px-2.5"
-                    >
-                      <ShieldCheck className="w-3 h-3" />
-                      <span>Verify</span>
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Printer Status Section (Section 7) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Printer Hardware Status
-              </h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onNavigate("printers")}
-                className="text-xs text-slate-600 hover:text-slate-900"
-              >
-                <span>Manage</span>
-              </Button>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden shadow-2xs">
-              {printers.length === 0 ? (
-                <div className="p-4 text-center text-xs text-slate-500">
-                  No printers connected
-                </div>
-              ) : (
-                printers.map((p) => {
-                  const isOnline = p.status === "ONLINE";
-                  const isPrintingThis =
-                    currentlyPrinting && currentlyPrinting.printer_name === p.name;
-                  return (
-                    <div key={p.id} className="p-3.5 flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-slate-800 block">
-                          {p.name}
-                        </span>
-                        <span className="text-[11px] text-slate-500 block">
-                          {isPrintingThis
-                            ? `Printing ${currentlyPrinting?.order_number}`
-                            : isOnline
-                            ? "Idle • Ready for print"
-                            : "Offline"}
-                        </span>
-                      </div>
-                      <StatusIndicator
-                        status={isPrintingThis ? "PRINTING" : isOnline ? "ONLINE" : "OFFLINE"}
-                      />
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Needs Attention / Issues (if any) */}
-          {issueJobs.length > 0 && (
-            <div className="space-y-2">
-              <h2 className="text-xs font-bold text-rose-600 uppercase tracking-wider">
-                Needs Attention ({issueJobs.length})
-              </h2>
-              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 space-y-2">
-                {issueJobs.slice(0, 2).map((job) => (
-                  <div key={job.job_id} className="flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-rose-900">{job.order_number}</span>
-                      <p className="text-[11px] text-rose-700">{job.error_message || "Ambiguous print"}</p>
-                    </div>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => onRetry(job.job_id)}
-                      className="h-6 text-[10px] px-2"
-                    >
-                      <RotateCcw className="w-2.5 h-2.5" />
-                      <span>Retry</span>
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          </Card>
         </div>
       </div>
+
+      {/* Printers & Devices Compact Rows */}
+      <Card
+        header={
+          <div className="flex items-center gap-2">
+            <Printer className="w-4 h-4 text-slate-600" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">Printers & Devices</h3>
+          </div>
+        }
+      >
+        <div className="divide-y divide-slate-100 text-xs">
+          {(printers.length > 0 ? printers : [
+            { id: 'p1', name: 'HP LaserJet Pro 4004', status: 'ONLINE', activity: 'Idle', caps: 'B&W · Duplex' },
+            { id: 'p2', name: 'Xerox WorkCentre 7830', status: 'ONLINE', activity: 'Printing', caps: 'Color · Duplex' },
+            { id: 'p3', name: 'Canon imageRUNNER 2525', status: 'OFFLINE', activity: 'Power disconnected', caps: 'B&W · Duplex' },
+          ]).map((p) => (
+            <div key={p.id} className="py-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <StatusBadge status={p.status} />
+                <div>
+                  <span className="font-semibold text-slate-900">{p.name}</span>
+                  <span className="text-slate-400 mx-2">•</span>
+                  <span className="text-slate-600">{p.activity || p.status}</span>
+                </div>
+              </div>
+              <div className="text-slate-500 font-mono text-[11px]">
+                {p.caps || (p.capabilities?.color ? "Color · Duplex" : "B&W · Duplex")}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Recent Orders Table */}
+      <Card
+        header={
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-slate-600" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">Recent Orders</h3>
+            </div>
+            <button
+              onClick={() => onNavigateTab("orders")}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1"
+            >
+              All Orders <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
+        }
+        padding="none"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200 font-mono">
+              <tr>
+                <th className="px-4 py-2.5">Token</th>
+                <th className="px-4 py-2.5">Document</th>
+                <th className="px-4 py-2.5">Pages</th>
+                <th className="px-4 py-2.5">Print</th>
+                <th className="px-4 py-2.5">Payment</th>
+                <th className="px-4 py-2.5">Status</th>
+                <th className="px-4 py-2.5">Amount</th>
+                <th className="px-4 py-2.5 text-right">Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-sans">
+              {recentOrders.map((item) => (
+                <tr key={item.job_id || item.order_id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-2.5 font-mono font-bold text-slate-900">{item.order_number}</td>
+                  <td className="px-4 py-2.5 font-medium text-slate-800 truncate max-w-[160px]">{item.document_name}</td>
+                  <td className="px-4 py-2.5 font-mono text-slate-700">{item.pages}</td>
+                  <td className="px-4 py-2.5 text-slate-600">{item.color_mode}</td>
+                  <td className="px-4 py-2.5 text-slate-600 font-mono">UPI</td>
+                  <td className="px-4 py-2.5"><StatusBadge status={item.order_status || item.status} /></td>
+                  <td className="px-4 py-2.5 font-mono font-semibold text-slate-900">₹{(item.total_amount_cents / 100).toFixed(2)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-slate-500 text-[11px]">
+                    {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
-}
+};

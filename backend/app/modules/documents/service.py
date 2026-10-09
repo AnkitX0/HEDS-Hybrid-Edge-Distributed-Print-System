@@ -272,17 +272,52 @@ class DocumentService:
                     message="Total upload size exceeds maximum allowed 100MB limit.",
                 )
 
-            pdf_bytes, page_cnt = convert_and_inspect_document(data, ext, original_name)
-            normalized_pdfs.append((sanitized, pdf_bytes, page_cnt))
-            file_details.append({
-                "filename": original_name,
-                "sanitized_name": sanitized,
-                "page_count": page_cnt,
-                "file_size_bytes": size,
-                "mime_type": mime_type,
-            })
+            try:
+                pdf_bytes, page_cnt = convert_and_inspect_document(data, ext, original_name)
+                # Store each valid normalized PDF
+                final_storage_name = sanitized
+                if not final_storage_name.lower().endswith(".pdf"):
+                    final_storage_name = f"{os.path.splitext(sanitized)[0]}.pdf"
 
-        # Merge all into one canonical printable PDF
+                storage_path = await storage_service.save_file(
+                    file_obj=io.BytesIO(pdf_bytes),
+                    filename=final_storage_name,
+                    content_type="application/pdf",
+                )
+                file_checksum = calculate_sha256(pdf_bytes)
+
+                normalized_pdfs.append((sanitized, pdf_bytes, page_cnt))
+                file_details.append({
+                    "filename": original_name,
+                    "sanitized_name": sanitized,
+                    "page_count": page_cnt,
+                    "file_size_bytes": size,
+                    "mime_type": mime_type,
+                    "storage_path": storage_path,
+                    "checksum": file_checksum,
+                    "status": "READY",
+                    "error": None,
+                })
+            except Exception as e:
+                logger.warning(f"[UPLOAD-MULTI] Failed to convert individual file {original_name}: {e}")
+                file_details.append({
+                    "filename": original_name,
+                    "sanitized_name": sanitized,
+                    "page_count": 0,
+                    "file_size_bytes": size,
+                    "mime_type": mime_type,
+                    "storage_path": None,
+                    "checksum": None,
+                    "status": "ERROR",
+                    "error": str(e),
+                })
+
+        if not normalized_pdfs:
+            # All uploaded files failed
+            first_err = next((f["error"] for f in file_details if f["error"]), "All files failed processing")
+            raise HEDSException(code="BATCH_PROCESSING_FAILED", message=f"Unable to process files: {first_err}")
+
+        # Merge valid files into one composite printable PDF for legacy clients
         if len(normalized_pdfs) == 1:
             merged_pdf_bytes = normalized_pdfs[0][1]
             total_pages = normalized_pdfs[0][2]
@@ -302,8 +337,8 @@ class DocumentService:
             merged_pdf_bytes = out_buf.getvalue()
             composite_name = f"combined_{len(normalized_pdfs)}_docs.pdf"
 
-        checksum = calculate_sha256(merged_pdf_bytes)
-        storage_path = await storage_service.save_file(
+        composite_checksum = calculate_sha256(merged_pdf_bytes)
+        composite_storage_path = await storage_service.save_file(
             file_obj=io.BytesIO(merged_pdf_bytes),
             filename=composite_name,
             content_type="application/pdf",
@@ -311,9 +346,9 @@ class DocumentService:
 
         return (
             composite_name,
-            storage_path,
+            composite_storage_path,
             len(merged_pdf_bytes),
-            checksum,
+            composite_checksum,
             total_pages,
             file_details,
         )

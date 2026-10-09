@@ -1,6 +1,6 @@
 import io
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from reportlab.lib.pagesizes import A5
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
@@ -23,9 +23,11 @@ def generate_order_receipt_pdf(
     pricing_breakdown: Optional[Dict[str, Any]] = None,
     payment_method: str = "UPI / Razorpay Sandbox",
     gateway_id: Optional[str] = None,
+    items: Optional[List[Dict[str, Any]]] = None,
 ) -> bytes:
     """
     Generates an authoritative, clean PDF receipt for an order.
+    Supports both single-file orders and multi-file print batches.
     Formatted cleanly for mobile and counter printing.
     """
     buffer = io.BytesIO()
@@ -135,34 +137,79 @@ def generate_order_receipt_pdf(
     story.append(Paragraph(token_display, token_number_style))
     story.append(Spacer(1, 10))
 
-    # Details Table
     formatted_date = created_at.strftime("%d %b %Y, %I:%M %p") if isinstance(created_at, datetime) else str(created_at)
     amount_str = f"Rs. {(total_amount_cents / 100):.2f}"
 
-    table_data = [
+    # General info
+    info_data = [
         [Paragraph("Order Reference", cell_label_style), Paragraph(order_number, cell_val_style)],
         [Paragraph("Date & Time", cell_label_style), Paragraph(formatted_date, cell_val_style)],
-        [Paragraph("Document", cell_label_style), Paragraph(document_name, cell_val_style)],
-        [Paragraph("Total Pages", cell_label_style), Paragraph(f"{page_count} pages", cell_val_style)],
-        [Paragraph("Copies", cell_label_style), Paragraph(str(copies), cell_val_style)],
-        [Paragraph("Color Mode", cell_label_style), Paragraph("Color" if color_mode.upper() == "COLOR" else "Black & White", cell_val_style)],
-        [Paragraph("Sides", cell_label_style), Paragraph("Double-sided" if duplex else "Single-sided", cell_val_style)],
-        [Paragraph("Paper Size", cell_label_style), Paragraph(paper_size.upper(), cell_val_style)],
         [Paragraph("Payment Status", cell_label_style), Paragraph("PAID", cell_val_style)],
         [Paragraph("Payment Method", cell_label_style), Paragraph(payment_method, cell_val_style)],
     ]
-
     if gateway_id:
-        table_data.append([Paragraph("Gateway Ref", cell_label_style), Paragraph(gateway_id, cell_val_style)])
+        info_data.append([Paragraph("Gateway Ref", cell_label_style), Paragraph(gateway_id, cell_val_style)])
 
-    table = Table(table_data, colWidths=[150, 190])
-    table.setStyle(TableStyle([
+    info_table = Table(info_data, colWidths=[150, 190])
+    info_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#f1f5f9")),
     ]))
-    story.append(table)
+    story.append(info_table)
+    story.append(Spacer(1, 8))
+
+    # Batch Documents Table if multiple items exist
+    if items and len(items) > 1:
+        story.append(Paragraph(f"<b>Print Batch Documents ({len(items)} files)</b>", cell_label_style))
+        story.append(Spacer(1, 4))
+        batch_rows = [[
+            Paragraph("<b># Document</b>", cell_label_style),
+            Paragraph("<b>Details</b>", cell_label_style),
+            Paragraph("<b>Amount</b>", cell_val_style),
+        ]]
+        for idx, item in enumerate(items):
+            d_name = item.get("filename") or item.get("document_name") or f"Doc {idx+1}"
+            d_pages = item.get("pages") or item.get("page_count") or item.get("document_page_count") or 1
+            d_copies = item.get("copies", 1)
+            d_color = "Color" if str(item.get("color_mode", "BW")).upper() == "COLOR" else "B&W"
+            d_sides = "Duplex" if item.get("duplex") else "Single"
+            d_price_cents = item.get("price_cents") or item.get("final_amount_cents") or 0
+            d_price_str = f"Rs. {(d_price_cents / 100):.2f}"
+
+            detail_text = f"{d_pages}pg x {d_copies}c &bull; {d_color} &bull; {d_sides}"
+            batch_rows.append([
+                Paragraph(f"{idx+1}. {d_name}", cell_label_style),
+                Paragraph(detail_text, cell_label_style),
+                Paragraph(d_price_str, cell_val_style),
+            ])
+        batch_table = Table(batch_rows, colWidths=[130, 140, 70])
+        batch_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ]))
+        story.append(batch_table)
+    else:
+        # Single document details
+        table_data = [
+            [Paragraph("Document", cell_label_style), Paragraph(document_name, cell_val_style)],
+            [Paragraph("Total Pages", cell_label_style), Paragraph(f"{page_count} pages", cell_val_style)],
+            [Paragraph("Copies", cell_label_style), Paragraph(str(copies), cell_val_style)],
+            [Paragraph("Color Mode", cell_label_style), Paragraph("Color" if color_mode.upper() == "COLOR" else "Black & White", cell_val_style)],
+            [Paragraph("Sides", cell_label_style), Paragraph("Double-sided" if duplex else "Single-sided", cell_val_style)],
+            [Paragraph("Paper Size", cell_label_style), Paragraph(paper_size.upper(), cell_val_style)],
+        ]
+        table = Table(table_data, colWidths=[150, 190])
+        table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#f1f5f9")),
+        ]))
+        story.append(table)
 
     story.append(Spacer(1, 8))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#0f172a"), spaceAfter=8))

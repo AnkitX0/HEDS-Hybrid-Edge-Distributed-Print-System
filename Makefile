@@ -64,6 +64,9 @@ dev-student:
 dev-shop:
 	cd apps/shop-dashboard && npm run dev -- -p 3001
 
+dev-qr:
+	cd apps/student-qr && npm run dev -- -p 3002
+
 test:
 	PYTHONPATH=backend:agent $(PYTHON) -m pytest tests/ -v
 

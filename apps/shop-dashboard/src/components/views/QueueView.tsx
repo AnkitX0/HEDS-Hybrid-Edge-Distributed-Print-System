@@ -190,17 +190,27 @@ export const QueueView: React.FC<QueueViewProps> = ({
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs table-auto">
+            <table className="w-full min-w-[960px] text-left text-xs table-fixed border-collapse">
+              <colgroup>
+                <col className="w-[90px]" />
+                <col className="w-[230px]" />
+                <col className="w-[60px]" />
+                <col className="w-[110px]" />
+                <col className="w-[130px]" />
+                <col className="w-[110px]" />
+                <col className="w-[80px]" />
+                <col className="w-[150px]" />
+              </colgroup>
               <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200 font-mono">
-                <tr>
-                  <th className="w-[100px] min-w-[100px] px-4 py-2.5">Token</th>
-                  <th className="min-w-[160px] max-w-[240px] px-4 py-2.5">Document</th>
-                  <th className="w-[70px] min-w-[70px] px-4 py-2.5">Pages</th>
-                  <th className="w-[130px] min-w-[130px] px-4 py-2.5">Settings</th>
-                  <th className="w-[130px] min-w-[130px] px-4 py-2.5">Printer</th>
-                  <th className="w-[110px] min-w-[110px] px-4 py-2.5">Status</th>
-                  <th className="w-[80px] min-w-[80px] px-4 py-2.5">Wait</th>
-                  <th className="w-[160px] min-w-[160px] max-w-[160px] px-4 py-2.5 text-right font-mono">Action</th>
+                <tr className="h-[40px]">
+                  <th className="px-3.5 py-2">Token</th>
+                  <th className="px-3 py-2">Document</th>
+                  <th className="px-3 py-2">Pages</th>
+                  <th className="px-3 py-2">Settings</th>
+                  <th className="px-3 py-2">Printer</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Wait</th>
+                  <th className="px-3.5 py-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
@@ -208,61 +218,65 @@ export const QueueView: React.FC<QueueViewProps> = ({
                   const key = item.job_id || item.order_id || item.id;
                   const itemState = actionStates[key] || { status: "idle" };
 
-                  const isCompleted = item.status === "COMPLETED" || item.order_status === "COMPLETED" || itemState.status === "success";
-                  const isPickupReady = (item.order_status === "PICKUP_READY" || item.status === "COMPLETED") && !isCompleted;
+                  const isOrderCollected = item.order_status === "COMPLETED" || itemState.status === "success";
+                  const isPickupReady = (item.order_status === "PICKUP_READY" || (item.status === "COMPLETED" && item.order_status !== "COMPLETED")) && !isOrderCollected;
                   const isFailed = item.status === "FAILED";
                   const isReconciling = item.status === "RECONCILING";
-                  const isQueued = item.status === "QUEUED";
-                  const isPrinting = item.status === "PRINTING";
+                  const isPrinting = item.status === "PRINTING" && !isOrderCollected && !isPickupReady;
+                  const isQueued = item.status === "QUEUED" && !isOrderCollected && !isPickupReady;
 
                   const tokenDisplay = item.order_number?.includes("-")
                     ? `#${item.order_number.split("-").pop()}`
                     : `#${item.order_number}`;
 
+                  const btnFootprint = "w-[124px] min-w-[124px] max-w-[124px] h-[36px] min-h-[36px] max-h-[36px] rounded-md text-xs font-medium inline-flex items-center justify-center box-border select-none shrink-0 transition-colors duration-150";
+
                   return (
-                    <tr key={key} className="hover:bg-slate-50 transition-colors h-[56px]">
+                    <tr key={key} className="hover:bg-slate-50/80 transition-colors h-[54px] max-h-[54px]">
                       {/* Token */}
-                      <td className="w-[100px] min-w-[100px] px-4 py-2.5 font-mono font-bold text-slate-900 text-sm">
+                      <td className="px-3.5 py-2 font-mono font-bold text-slate-900 text-sm whitespace-nowrap overflow-hidden">
                         {tokenDisplay}
                       </td>
 
                       {/* Document with ellipsis & title tooltip */}
-                      <td className="min-w-[160px] max-w-[240px] px-4 py-2.5 font-medium text-slate-800">
-                        <div className="truncate max-w-[220px]" title={item.document_name}>
+                      <td className="px-3 py-2 font-medium text-slate-800">
+                        <div className="truncate max-w-[215px]" title={item.document_name}>
                           {item.document_name}
                         </div>
                       </td>
 
                       {/* Pages */}
-                      <td className="w-[70px] min-w-[70px] px-4 py-2.5 font-mono text-slate-700">
+                      <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">
                         {item.pages}
                       </td>
 
                       {/* Settings */}
-                      <td className="w-[130px] min-w-[130px] px-4 py-2.5 text-slate-600 text-[11px]">
+                      <td className="px-3 py-2 text-slate-600 text-[11px] whitespace-nowrap overflow-hidden">
                         {item.color_mode} &bull; {item.duplex ? "Duplex" : "Single"}
                       </td>
 
                       {/* Printer */}
-                      <td className="w-[130px] min-w-[130px] px-4 py-2.5 font-mono text-slate-700 text-[11px] truncate" title={item.printer_name || "HP LaserJet Pro 4004"}>
-                        {item.printer_name || "HP LaserJet Pro 4004"}
+                      <td className="px-3 py-2 font-mono text-slate-700 text-[11px]">
+                        <div className="truncate max-w-[120px]" title={item.printer_name || "HP LaserJet Pro 4004"}>
+                          {item.printer_name || "HP LaserJet Pro 4004"}
+                        </div>
                       </td>
 
                       {/* Status */}
-                      <td className="w-[110px] min-w-[110px] px-4 py-2.5">
-                        <StatusBadge status={isCompleted ? "COMPLETED" : isPickupReady ? "READY" : item.status} />
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <StatusBadge status={isOrderCollected ? "COMPLETED" : isPickupReady ? "READY" : item.status} />
                       </td>
 
                       {/* Wait Time */}
-                      <td className="w-[80px] min-w-[80px] px-4 py-2.5 font-mono text-slate-500 text-[11px]">
-                        {isCompleted ? "Done" : isPickupReady ? "At Counter" : isPrinting ? "Now" : "~1 min"}
+                      <td className="px-3 py-2 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                        {isOrderCollected ? "Done" : isPickupReady ? "At Counter" : isPrinting ? "Now" : "~1 min"}
                       </td>
 
-                      {/* Stable Action Column (160px width, 36px x 120px button footprint) */}
-                      <td className="w-[160px] min-w-[160px] max-w-[160px] px-4 py-2.5 text-right">
-                        <div className="flex items-center justify-end">
-                          {isCompleted ? (
-                            <div className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono shadow-2xs">
+                      {/* Stable Action Column (150px column, 36px x 124px invariant button footprint) */}
+                      <td className="px-3.5 py-2 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end h-[36px]">
+                          {isOrderCollected ? (
+                            <div className={`${btnFootprint} bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono shadow-2xs`}>
                               <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
                               <span>Collected</span>
                             </div>
@@ -270,10 +284,10 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             itemState.status === "loading" ? (
                               <button
                                 disabled
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-blue-50 text-blue-700 border border-blue-200 cursor-not-allowed shadow-2xs"
+                                className={`${btnFootprint} bg-blue-50 text-blue-700 border border-blue-200 cursor-not-allowed shadow-2xs`}
                               >
                                 <svg
-                                  className="animate-spin -ml-1 mr-1.5 h-3.5 w-3.5 text-blue-600"
+                                  className="animate-spin mr-1.5 h-3.5 w-3.5 text-blue-600 shrink-0"
                                   xmlns="http://www.w3.org/2000/svg"
                                   fill="none"
                                   viewBox="0 0 24 24"
@@ -286,7 +300,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             ) : itemState.status === "failure" ? (
                               <button
                                 onClick={() => handleMarkCollectedClick(item)}
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100 shadow-2xs transition-colors"
+                                className={`${btnFootprint} bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100 shadow-2xs`}
                                 title={itemState.message || "Could not mark this order as collected. Click to retry."}
                               >
                                 <span>Retry Collect</span>
@@ -294,7 +308,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             ) : (
                               <button
                                 onClick={() => handleMarkCollectedClick(item)}
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                                className={`${btnFootprint} bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500`}
                               >
                                 <span>Mark Collected</span>
                               </button>
@@ -303,51 +317,51 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             itemState.status === "loading" ? (
                               <button
                                 disabled
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200 cursor-not-allowed shadow-2xs"
+                                className={`${btnFootprint} bg-slate-50 text-slate-600 border border-slate-200 cursor-not-allowed shadow-2xs`}
                               >
-                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin text-slate-500" />
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin text-slate-500 shrink-0" />
                                 <span>Retrying...</span>
                               </button>
                             ) : (
                               <button
                                 onClick={() => handleRetryClick(item)}
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-xs transition-colors"
+                                className={`${btnFootprint} bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-xs`}
                               >
-                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500 shrink-0" />
                                 <span>Retry Print</span>
                               </button>
                             )
                           ) : isReconciling ? (
                             <button
                               onClick={() => onOpenReconcileModal(item)}
-                              className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white shadow-xs transition-colors"
+                              className={`${btnFootprint} bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white shadow-xs`}
                             >
-                              <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+                              <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
                               <span>Reconcile</span>
                             </button>
                           ) : isQueued ? (
                             itemState.status === "loading" ? (
                               <button
                                 disabled
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed"
+                                className={`${btnFootprint} bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed`}
                               >
                                 <span>Cancelling...</span>
                               </button>
                             ) : (
                               <button
                                 onClick={() => handleCancelClick(item)}
-                                className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-medium flex items-center justify-center bg-white text-slate-600 border border-slate-200 hover:text-rose-600 hover:border-rose-300 shadow-2xs transition-colors"
+                                className={`${btnFootprint} bg-white text-slate-600 border border-slate-200 hover:text-rose-600 hover:border-rose-300 shadow-2xs`}
                               >
                                 <span>Cancel Job</span>
                               </button>
                             )
                           ) : isPrinting ? (
-                            <div className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-mono flex items-center justify-center bg-blue-50/70 text-blue-700 border border-blue-200">
+                            <div className={`${btnFootprint} font-mono bg-blue-50/70 text-blue-700 border border-blue-200`}>
                               <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse mr-1.5 shrink-0" />
                               <span>Printing...</span>
                             </div>
                           ) : (
-                            <div className="h-[36px] min-w-[120px] w-[120px] rounded-md text-xs font-mono flex items-center justify-center bg-slate-50 text-slate-400 border border-slate-100">
+                            <div className={`${btnFootprint} font-mono bg-slate-50 text-slate-400 border border-slate-100`}>
                               <span>In Queue</span>
                             </div>
                           )}

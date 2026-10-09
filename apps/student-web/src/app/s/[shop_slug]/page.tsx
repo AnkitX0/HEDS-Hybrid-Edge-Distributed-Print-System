@@ -1,169 +1,427 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
-  UploadCloud,
-  FileText,
-  Clock,
   Layers,
+  Clock,
   AlertCircle,
-  CreditCard,
+  CheckCircle2,
+  SlidersHorizontal,
   Trash2,
+  ShieldCheck,
+  FileText,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
-
-interface ShopInfo {
-  id: string;
-  name: string;
-  slug: string;
-  is_active: boolean;
-  is_queue_paused: boolean;
-  queue_length: number;
-  estimated_wait_minutes: number;
-  pricing: {
-    bw_per_page_cents: number;
-    color_per_page_cents: number;
-    duplex_discount_cents: number;
-    minimum_order_cents: number;
-    paper_size: string;
-  };
-}
+import {
+  BatchDocumentItem,
+  BatchPricingBreakdown,
+  ShopInfo,
+} from "@/components/batch/types";
+import { PrintBatchUploader } from "@/components/batch/PrintBatchUploader";
+import { FileBatchCard } from "@/components/batch/FileBatchCard";
+import { FileConfigModal } from "@/components/batch/FileConfigModal";
+import {
+  ApplyAllModal,
+  BatchSettingsPayload,
+} from "@/components/batch/ApplyAllModal";
+import { DuplicateSettingsModal } from "@/components/batch/DuplicateSettingsModal";
+import { BatchSummaryCard } from "@/components/batch/BatchSummaryCard";
 
 export default function ShopOrderPage() {
   const params = useParams();
   const router = useRouter();
   const shopSlug = params.shop_slug as string;
 
-  const [step, setStep] = useState<"upload" | "configure" | "payment">("upload");
-  const [file, setFile] = useState<File | null>(null);
-  const [documentId, setDocumentId] = useState<string | null>(null);
-  const [pageCount, setPageCount] = useState<number>(1);
-  const [copies, setCopies] = useState<number>(1);
-  const [colorMode, setColorMode] = useState<"BW" | "COLOR">("BW");
-  const [duplex, setDuplex] = useState<boolean>(false);
-  const [paperSize, setPaperSize] = useState<string>("A4");
-  const [pageRange, setPageRange] = useState<string>("all");
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [submitting, setSubmitting] = useState<boolean>(false);
+  // Batch State
+  const [items, setItems] = useState<BatchDocumentItem[]>([]);
+  const [activeConfigItem, setActiveConfigItem] = useState<BatchDocumentItem | null>(null);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isApplyAllOpen, setIsApplyAllOpen] = useState(false);
+  const [duplicateSource, setDuplicateSource] = useState<BatchDocumentItem | null>(null);
+  const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
+
+  // Quote & Checkout State
+  const [pricingBreakdown, setPricingBreakdown] = useState<BatchPricingBreakdown | null>(null);
+  const [isCalculatingPrice, setIsCalculatingPrice] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Fetch shop metadata
-  const { data: shop, isLoading, error } = useQuery<ShopInfo>({
+  const {
+    data: shop,
+    isLoading: isShopLoading,
+    error: shopError,
+  } = useQuery<ShopInfo>({
     queryKey: ["shop", shopSlug],
     queryFn: async () => {
       const res = await fetch(`/api/v1/shops/${shopSlug}`);
       if (!res.ok) throw new Error("Print shop not found");
       return res.json();
     },
+    refetchInterval: 10000,
   });
 
-  const handleFileSelect = async (selected: File) => {
-    const ext = selected.name.split(".").pop()?.toLowerCase();
-    if (!["pdf", "png", "jpg", "jpeg"].includes(ext || "")) {
-      setErrorMessage("Unsupported file format. Please select a PDF, PNG, or JPG document.");
-      return;
-    }
-    if (selected.size > 50 * 1024 * 1024) {
-      setErrorMessage("File exceeds maximum 50 MB limit.");
-      return;
-    }
+  // Clear success toast after 3 seconds
+  useEffect(() => {
+    if (!successToast) return;
+    const timer = setTimeout(() => setSuccessToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [successToast]);
+
+  // Recalculate authoritative batch pricing whenever ready items change
+  const refreshQuote = useCallback(
+    async (currentItems: BatchDocumentItem[]) => {
+      const readyItems = currentItems.filter(
+        (it) => it.status === "READY" && it.document_id
+      );
+
+      if (readyItems.length === 0) {
+        setPricingBreakdown(null);
+        return;
+      }
+
+      setIsCalculatingPrice(true);
+      try {
+        const payload = {
+          items: readyItems.map((it) => ({
+            document_id: it.document_id,
+            copies: it.copies,
+            color_mode: it.color_mode,
+            duplex: it.duplex,
+            paper_size: it.paper_size,
+            page_range:
+              it.page_range_mode === "custom" && it.page_range
+                ? it.page_range
+                : "all",
+            orientation: it.orientation,
+            scaling: it.scaling,
+          })),
+        };
+
+        const res = await fetch(`/api/v1/shops/${shopSlug}/pricing/quote`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to calculate batch quote");
+        }
+
+        const data: BatchPricingBreakdown = await res.json();
+        setPricingBreakdown(data);
+
+        // Update each item's calculated price locally
+        setItems((prev) =>
+          prev.map((it) => {
+            const itemPrice = data.items?.find((p) => p.document_id === it.document_id);
+            if (itemPrice) {
+              return {
+                ...it,
+                calculated_price_cents: itemPrice.final_amount_cents,
+                sheets_count: itemPrice.sheets_count,
+              };
+            }
+            return it;
+          })
+        );
+      } catch (err: any) {
+        console.error("Quote error:", err);
+      } finally {
+        setIsCalculatingPrice(false);
+      }
+    },
+    [shopSlug]
+  );
+
+  // Upload handler for adding files (appends to batch)
+  const handleFilesAdded = async (newFiles: File[]) => {
+    if (!newFiles.length) return;
     setErrorMessage(null);
-    setFile(selected);
-    setIsUploading(true);
+
+    // Create client items with temporary client IDs
+    const newItems: BatchDocumentItem[] = newFiles.map((file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      const isImg = ["jpg", "jpeg", "png", "webp"].includes(ext);
+
+      return {
+        id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        file,
+        name: file.name,
+        size: file.size,
+        mime_type: file.type,
+        page_count: isImg ? 1 : 0,
+        status: "UPLOADING",
+        copies: 1,
+        color_mode: "BW",
+        duplex: false,
+        paper_size: "A4",
+        page_range_mode: "all",
+        page_range: "all",
+        orientation: "PORTRAIT",
+        scaling: "FIT",
+        calculated_price_cents: 0,
+      };
+    });
+
+    const updatedBatch = [...items, ...newItems];
+    setItems(updatedBatch);
+
+    // Upload files sequentially or in batch to backend
+    const formData = new FormData();
+    newFiles.forEach((file) => {
+      formData.append("files", file);
+    });
 
     try {
-      const formData = new FormData();
-      formData.append("file", selected);
-      const res = await fetch(`/api/v1/shops/${shopSlug}/documents/upload`, {
+      const res = await fetch(`/api/v1/shops/${shopSlug}/documents/upload-multiple`, {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Failed to process document");
-      const data = await res.json();
-      setDocumentId(data.document_id);
-      setPageCount(data.page_count || 1);
-    } catch (e: any) {
-      // Fallback local page count estimation if upload endpoint is mock
-      setPageCount(2);
-    } finally {
-      setIsUploading(false);
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || "Failed to process files");
+      }
+
+      const resData = await res.json();
+      const serverDocs: any[] = resData.documents || [];
+
+      // Reconcile each newly added file
+      setItems((prevItems) => {
+        const next = prevItems.map((item) => {
+          // Check if this item is one of our newly added files
+          const matchingUploaded = serverDocs.find(
+            (sd) => sd.filename === item.name && item.status === "UPLOADING"
+          );
+
+          if (matchingUploaded) {
+            if (matchingUploaded.status === "ERROR") {
+              return {
+                ...item,
+                status: "ERROR" as const,
+                error: matchingUploaded.error || "Unable to process document",
+              };
+            }
+            return {
+              ...item,
+              document_id: matchingUploaded.id,
+              page_count: matchingUploaded.page_count || 1,
+              status: "READY" as const,
+              error: undefined,
+            };
+          }
+          return item;
+        });
+
+        // Trigger authoritative pricing quote calculation
+        refreshQuote(next);
+        return next;
+      });
+    } catch (err: any) {
+      // Mark newly added items as ERROR
+      setItems((prevItems) =>
+        prevItems.map((item) => {
+          if (newItems.some((ni) => ni.id === item.id)) {
+            return {
+              ...item,
+              status: "ERROR",
+              error: err.message || "Failed to upload document",
+            };
+          }
+          return item;
+        })
+      );
+      setErrorMessage(err.message || "Failed to upload files.");
     }
   };
 
-  const calculateTotalCents = () => {
-    if (!shop || !shop.pricing) return 200;
-    const baseRate = colorMode === "COLOR" ? shop.pricing.color_per_page_cents : shop.pricing.bw_per_page_cents;
-    const rawTotal = baseRate * pageCount * copies;
-    const discount = duplex ? shop.pricing.duplex_discount_cents * copies : 0;
-    return Math.max(shop.pricing.minimum_order_cents, rawTotal - discount);
+  // Remove file
+  const handleRemoveItem = (itemToRemove: BatchDocumentItem) => {
+    setItems((prev) => {
+      const next = prev.filter((it) => it.id !== itemToRemove.id);
+      refreshQuote(next);
+      return next;
+    });
   };
 
-  const formattedTotal = (calculateTotalCents() / 100).toFixed(2);
+  // Reorder files: Move up
+  const handleMoveUp = (idx: number) => {
+    if (idx <= 0) return;
+    setItems((prev) => {
+      const next = [...prev];
+      const temp = next[idx - 1];
+      next[idx - 1] = next[idx];
+      next[idx] = temp;
+      refreshQuote(next);
+      return next;
+    });
+  };
 
-  const handleSubmitOrder = async () => {
-    if (!file && !documentId) return;
+  // Reorder files: Move down
+  const handleMoveDown = (idx: number) => {
+    if (idx >= items.length - 1) return;
+    setItems((prev) => {
+      const next = [...prev];
+      const temp = next[idx + 1];
+      next[idx + 1] = next[idx];
+      next[idx] = temp;
+      refreshQuote(next);
+      return next;
+    });
+  };
 
-    setSubmitting(true);
+  // Open Configure Modal
+  const handleConfigureClick = (item: BatchDocumentItem) => {
+    setActiveConfigItem(item);
+    setIsConfigModalOpen(true);
+  };
+
+  // Save Configured Settings
+  const handleSaveConfig = (updated: BatchDocumentItem) => {
+    setItems((prev) => {
+      const next = prev.map((it) => (it.id === updated.id ? updated : it));
+      refreshQuote(next);
+      return next;
+    });
+    setSuccessToast(`Updated settings for "${updated.name}"`);
+  };
+
+  // Open Duplicate Modal
+  const handleDuplicateClick = (item: BatchDocumentItem) => {
+    setDuplicateSource(item);
+    setIsDuplicateOpen(true);
+  };
+
+  // Execute Duplicate Settings
+  const handleExecuteDuplicate = (
+    source: BatchDocumentItem,
+    targetIds: string[]
+  ) => {
+    setItems((prev) => {
+      const next = prev.map((it) => {
+        if (!targetIds.includes(it.id)) return it;
+        return {
+          ...it,
+          copies: source.copies,
+          color_mode: source.color_mode,
+          duplex: it.name.match(/\.(jpg|jpeg|png|webp)$/i) ? false : source.duplex,
+          paper_size: source.paper_size,
+          orientation: source.orientation,
+          scaling: source.scaling,
+          // Safely preserve target page range unless it was 'all'
+          page_range_mode: "all" as const,
+          page_range: "all",
+        };
+      });
+      refreshQuote(next);
+      return next;
+    });
+    setSuccessToast(`Settings copied to ${targetIds.length} file(s)`);
+  };
+
+  // Execute Batch-level Apply to All
+  const handleApplyAll = (settings: BatchSettingsPayload) => {
+    setItems((prev) => {
+      const next = prev.map((it) => {
+        const isImg = it.name.match(/\.(jpg|jpeg|png|webp)$/i);
+        return {
+          ...it,
+          copies: settings.copies !== undefined ? settings.copies : it.copies,
+          color_mode: settings.colorMode !== undefined ? settings.colorMode : it.color_mode,
+          duplex:
+            settings.duplex !== undefined
+              ? isImg
+                ? false
+                : settings.duplex
+              : it.duplex,
+          paper_size: settings.paperSize !== undefined ? settings.paperSize : it.paper_size,
+          orientation:
+            settings.orientation !== undefined ? settings.orientation : it.orientation,
+          scaling: settings.scaling !== undefined ? settings.scaling : it.scaling,
+        };
+      });
+      refreshQuote(next);
+      return next;
+    });
+    setSuccessToast(`Applied settings to all ${items.length} files`);
+  };
+
+  // Clear all
+  const handleClearAll = () => {
+    setItems([]);
+    setPricingBreakdown(null);
+    setErrorMessage(null);
+  };
+
+  // Checkout and Order Creation
+  const handleCheckout = async () => {
+    const readyItems = items.filter((it) => it.status === "READY" && it.document_id);
+    if (!readyItems.length || !shop) return;
+
+    setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
-      let orderData;
-      if (documentId) {
-        const formData = new FormData();
-        formData.append("document_id", documentId);
-        formData.append("copies", copies.toString());
-        formData.append("color_mode", colorMode);
-        formData.append("duplex", duplex.toString());
-        formData.append("paper_size", paperSize);
-        formData.append("page_range", pageRange);
+      const payload = {
+        items: readyItems.map((it) => ({
+          document_id: it.document_id,
+          copies: it.copies,
+          color_mode: it.color_mode,
+          duplex: it.duplex,
+          paper_size: it.paper_size,
+          page_range:
+            it.page_range_mode === "custom" && it.page_range
+              ? it.page_range
+              : "all",
+          orientation: it.orientation,
+          scaling: it.scaling,
+        })),
+      };
 
-        const res = await fetch(`/api/v1/shops/${shopSlug}/orders`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || "Failed to create order");
-        }
-        orderData = await res.json();
-      } else {
-        const formData = new FormData();
-        formData.append("file", file!);
-        formData.append("copies", copies.toString());
-        formData.append("color_mode", colorMode);
-        formData.append("duplex", duplex.toString());
-        formData.append("paper_size", paperSize);
-        formData.append("page_range", pageRange);
+      const res = await fetch(`/api/v1/shops/${shopSlug}/orders/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-        const res = await fetch(`/api/v1/shops/${shopSlug}/orders`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) throw new Error("Failed to create order");
-        orderData = await res.json();
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || "Failed to create batch order");
       }
 
-      // Sandbox Mock Payment
-      const payRes = await fetch(`/api/v1/orders/${orderData.guest_access_token}/payment`, {
+      const orderData = await res.json();
+      const guestToken = orderData.guest_access_token;
+
+      if (!guestToken) {
+        throw new Error("Missing guest order token from server");
+      }
+
+      // Execute Mock/Sandbox Payment
+      const payRes = await fetch(`/api/v1/orders/${guestToken}/payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ simulate_status: "success" }),
       });
 
-      if (!payRes.ok) throw new Error("Payment failed");
+      if (!payRes.ok) {
+        throw new Error("Payment execution failed");
+      }
 
-      router.push(`/orders/${orderData.guest_access_token}`);
+      // Navigate to order tracking page
+      router.push(`/orders/${guestToken}`);
     } catch (err: any) {
       setErrorMessage(err.message || "An error occurred during checkout.");
-      setSubmitting(false);
+      setIsSubmitting(false);
     }
   };
 
-  if (isLoading) {
+  if (isShopLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-slate-500 space-y-2">
         <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -172,9 +430,9 @@ export default function ShopOrderPage() {
     );
   }
 
-  if (error || !shop) {
+  if (shopError || !shop) {
     return (
-      <Card className="text-center p-6 space-y-2 border-rose-200 bg-rose-50/50">
+      <Card className="text-center p-6 space-y-2 border-rose-200 bg-rose-50/50 max-w-lg mx-auto">
         <AlertCircle className="w-7 h-7 mx-auto text-rose-600" />
         <h2 className="font-bold text-sm text-slate-900">Shop Currently Unavailable</h2>
         <p className="text-xs text-slate-600">The requested print shop link is inactive or invalid.</p>
@@ -182,16 +440,34 @@ export default function ShopOrderPage() {
     );
   }
 
+  const readyCount = items.filter((it) => it.status === "READY").length;
+  const isAnyProcessing = items.some(
+    (it) => it.status === "UPLOADING" || it.status === "PROCESSING"
+  );
+
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
+    <div className="space-y-5 max-w-5xl mx-auto px-4 py-2">
+      {/* Toast Notification */}
+      {successToast && (
+        <div className="fixed top-4 right-4 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-150">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{successToast}</span>
+        </div>
+      )}
+
       {/* Storefront Header */}
       <Card padding="md" className="space-y-2">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="font-bold text-base text-slate-900">{shop.name}</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Print documents without waiting in line</p>
+            <h1 className="font-bold text-base md:text-lg text-slate-900">{shop.name}</h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Multi-document print batches &bull; Independent print configurations
+            </p>
           </div>
-          <StatusBadge status={shop.is_queue_paused ? "PAUSED" : "ONLINE"} label={shop.is_queue_paused ? "Queue Paused" : "Open"} />
+          <StatusBadge
+            status={shop.is_queue_paused ? "PAUSED" : "ONLINE"}
+            label={shop.is_queue_paused ? "Queue Paused" : "Open"}
+          />
         </div>
 
         <div className="flex items-center gap-4 pt-2 border-t border-slate-100 text-xs text-slate-600 font-mono">
@@ -206,249 +482,132 @@ export default function ShopOrderPage() {
         </div>
       </Card>
 
+      {/* Error Banner */}
       {errorMessage && (
-        <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-start gap-2">
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-          <span>{errorMessage}</span>
+          <div className="flex-1 font-medium">{errorMessage}</div>
         </div>
       )}
 
-      {/* STEP 1: UPLOAD */}
-      {step === "upload" && (
-        <Card padding="lg" className="space-y-4 text-center">
-          <div className="space-y-1">
-            <h2 className="text-base font-bold text-slate-900">Print your documents</h2>
-            <p className="text-xs text-slate-500">Upload a PDF or image to get started</p>
-          </div>
+      {/* Two-Column Desktop Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* LEFT COLUMN: Uploader & File Batch List (7 cols) */}
+        <div className="lg:col-span-7 space-y-4">
+          {/* Uploader Box */}
+          <Card padding="md" className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-900">
+                {items.length === 0 ? "Upload Documents" : "Add More Documents"}
+              </h2>
+              <span className="text-[11px] font-mono text-slate-400">
+                Max 50MB per file
+              </span>
+            </div>
 
-          <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-600 bg-slate-50/60 rounded-md p-8 transition-colors">
-            <input
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg"
-              onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            <PrintBatchUploader
+              onFilesAdded={handleFilesAdded}
+              isProcessing={isAnyProcessing}
+              disabled={shop.is_queue_paused}
+              compact={items.length > 0}
             />
-            {file ? (
-              <div className="flex items-center justify-between text-left bg-white p-3 border border-slate-200 rounded-md">
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="w-9 h-9 rounded bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="overflow-hidden">
-                    <p className="text-xs font-semibold text-slate-900 truncate">{file.name}</p>
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      {pageCount} {pageCount === 1 ? "page" : "pages"} &bull; {(file.size / 1024).toFixed(1)} KB
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFile(null);
-                    setDocumentId(null);
-                  }}
-                  className="p-1 text-slate-400 hover:text-rose-600"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+          </Card>
+
+          {/* Batch Management Toolbar */}
+          {items.length > 0 && (
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono">
+                  PRINT BATCH &bull; {items.length} {items.length === 1 ? "FILE" : "FILES"}
+                </span>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <UploadCloud className="w-8 h-8 text-blue-600 mx-auto" />
-                <p className="text-xs font-medium text-slate-800">Drag & drop file here or click to choose</p>
-                <p className="text-[10px] text-slate-400 font-mono">PDF, JPG, PNG &bull; Maximum 50 MB</p>
-              </div>
-            )}
-          </div>
 
-          <Button
-            size="lg"
-            variant="primary"
-            disabled={!file || isUploading || shop.is_queue_paused}
-            isLoading={isUploading}
-            onClick={() => setStep("configure")}
-            className="w-full"
-          >
-            Continue to Print Settings
-          </Button>
-        </Card>
-      )}
-
-      {/* STEP 2: PRINT CONFIGURATION */}
-      {step === "configure" && (
-        <Card padding="lg" className="space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-              <span className="text-xs font-bold text-slate-900 truncate">{file?.name}</span>
-            </div>
-            <span className="text-xs font-mono font-semibold text-slate-600 shrink-0">{pageCount} pages</span>
-          </div>
-
-          <div className="space-y-4 text-xs">
-            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-              PRINT SETTINGS
-            </span>
-
-            {/* Color Mode */}
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Color Mode</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setColorMode("BW")}
-                  className={`py-2 px-3 rounded-md border text-xs font-medium text-center transition-all ${
-                    colorMode === "BW"
-                      ? "bg-slate-900 text-white border-slate-900 font-bold"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  B&W (₹1.00 / pg)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setColorMode("COLOR")}
-                  className={`py-2 px-3 rounded-md border text-xs font-medium text-center transition-all ${
-                    colorMode === "COLOR"
-                      ? "bg-blue-600 text-white border-blue-600 font-bold"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  Color (₹10.00 / pg)
-                </button>
-              </div>
-            </div>
-
-            {/* Sides / Duplex */}
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Sides</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDuplex(false)}
-                  className={`py-2 px-3 rounded-md border text-xs font-medium text-center transition-all ${
-                    !duplex
-                      ? "bg-slate-900 text-white border-slate-900 font-bold"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  Single-sided
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDuplex(true)}
-                  className={`py-2 px-3 rounded-md border text-xs font-medium text-center transition-all ${
-                    duplex
-                      ? "bg-blue-600 text-white border-blue-600 font-bold"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  Double-sided (Duplex)
-                </button>
-              </div>
-            </div>
-
-            {/* Copies & Paper */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Copies</label>
-                <div className="flex items-center border border-slate-200 rounded-md overflow-hidden h-9 bg-white">
+              <div className="flex items-center gap-2">
+                {readyCount > 1 && (
                   <button
                     type="button"
-                    onClick={() => setCopies(Math.max(1, copies - 1))}
-                    className="w-9 h-full bg-slate-100 text-slate-800 font-mono font-bold hover:bg-slate-200"
+                    onClick={() => setIsApplyAllOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors"
                   >
-                    -
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Apply to all</span>
                   </button>
-                  <span className="flex-1 text-center font-mono font-bold">{copies}</span>
-                  <button
-                    type="button"
-                    onClick={() => setCopies(copies + 1)}
-                    className="w-9 h-full bg-slate-100 text-slate-800 font-mono font-bold hover:bg-slate-200"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
+                )}
 
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Paper Size</label>
-                <select
-                  value={paperSize}
-                  onChange={(e) => setPaperSize(e.target.value)}
-                  className="w-full h-9 px-2 text-xs bg-white border border-slate-200 rounded-md font-medium text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                <button
+                  type="button"
+                  onClick={handleClearAll}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                 >
-                  <option value="A4">A4 Standard</option>
-                  <option value="A3">A3 Large</option>
-                  <option value="LETTER">Letter</option>
-                </select>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear</span>
+                </button>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Authoritative Price Calculation */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-between font-mono">
-            <span className="text-xs text-slate-500 font-sans">
-              PRICE ({pageCount} {pageCount === 1 ? "page" : "pages"} × {copies} copy)
-            </span>
-            <span className="text-lg font-bold text-slate-900">₹{formattedTotal}</span>
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="lg" onClick={() => setStep("upload")} className="w-1/3">
-              Back
-            </Button>
-            <Button variant="primary" size="lg" onClick={() => setStep("payment")} className="w-2/3">
-              Continue to Payment
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {/* STEP 3: PAYMENT */}
-      {step === "payment" && (
-        <Card padding="lg" className="space-y-5">
-          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-            ORDER SUMMARY
-          </span>
-
-          <div className="space-y-2 text-xs font-mono bg-slate-50 p-3 rounded-md border border-slate-200">
-            <div className="flex justify-between font-sans">
-              <span className="text-slate-500">Document:</span>
-              <span className="font-semibold text-slate-900 truncate max-w-[180px]">{file?.name}</span>
+          {/* File Cards List */}
+          {items.length > 0 && (
+            <div className="space-y-3">
+              {items.map((item, idx) => (
+                <FileBatchCard
+                  key={item.id}
+                  item={item}
+                  index={idx}
+                  totalCount={items.length}
+                  onConfigure={handleConfigureClick}
+                  onDuplicate={handleDuplicateClick}
+                  onRemove={handleRemoveItem}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                />
+              ))}
             </div>
-            <div className="flex justify-between font-sans">
-              <span className="text-slate-500">Spec:</span>
-              <span className="text-slate-900">{pageCount} pgs &bull; {colorMode} &bull; {duplex ? "Duplex" : "Single"} &bull; {copies}x</span>
-            </div>
-            <div className="flex justify-between pt-2 border-t border-slate-200 text-sm font-bold text-slate-900">
-              <span>TOTAL</span>
-              <span>₹{formattedTotal}</span>
-            </div>
-          </div>
+          )}
+        </div>
 
-          <div className="p-2.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800 flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>Payment Gateway &bull; UPI, Cards, NetBanking Supported</span>
-          </div>
+        {/* RIGHT COLUMN: Sticky Order Summary & Checkout (5 cols) */}
+        <div className="lg:col-span-5 lg:sticky lg:top-5 space-y-4">
+          <BatchSummaryCard
+            items={items}
+            pricing={pricingBreakdown}
+            isCalculatingPrice={isCalculatingPrice}
+            isSubmitting={isSubmitting}
+            onCheckout={handleCheckout}
+            disabled={shop.is_queue_paused}
+          />
+        </div>
+      </div>
 
-          <div className="flex gap-2">
-            <Button variant="outline" size="lg" onClick={() => setStep("configure")} className="w-1/3">
-              Back
-            </Button>
-            <Button
-              variant="primary"
-              size="lg"
-              isLoading={submitting}
-              onClick={handleSubmitOrder}
-              className="w-2/3 bg-emerald-600 hover:bg-emerald-700 font-bold"
-            >
-              Pay ₹{formattedTotal}
-            </Button>
-          </div>
-        </Card>
-      )}
+      {/* Modals */}
+      <FileConfigModal
+        isOpen={isConfigModalOpen}
+        item={activeConfigItem}
+        shopPricing={shop?.pricing}
+        onClose={() => {
+          setIsConfigModalOpen(false);
+          setActiveConfigItem(null);
+        }}
+        onSave={handleSaveConfig}
+      />
+
+      <ApplyAllModal
+        isOpen={isApplyAllOpen}
+        fileCount={items.length}
+        onClose={() => setIsApplyAllOpen(false)}
+        onApply={handleApplyAll}
+      />
+
+      <DuplicateSettingsModal
+        isOpen={isDuplicateOpen}
+        sourceItem={duplicateSource}
+        allItems={items}
+        onClose={() => {
+          setIsDuplicateOpen(false);
+          setDuplicateSource(null);
+        }}
+        onDuplicate={handleExecuteDuplicate}
+      />
     </div>
   );
 }

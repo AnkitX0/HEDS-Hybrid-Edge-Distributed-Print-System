@@ -37,10 +37,13 @@ class ShopPublicInfo(BaseModel):
 
 # Document & Upload Schemas
 class DocumentItemDetail(BaseModel):
+    document_id: Optional[str] = None
     filename: str
     page_count: int
     file_size_bytes: int
     mime_type: str
+    error: Optional[str] = None
+    status: Optional[str] = "READY"
 
 
 class DocumentUploadResponse(BaseModel):
@@ -61,6 +64,17 @@ class MultiDocumentUploadResponse(BaseModel):
     documents: List[DocumentItemDetail]
 
 
+# Canonical Print Specification per Document
+class BatchOrderItemInput(BaseModel):
+    document_id: str
+    copies: int = Field(default=1, ge=1, le=100)
+    color_mode: ColorMode = ColorMode.BW
+    duplex: bool = False
+    paper_size: str = "A4"
+    page_range: str = "all"
+    orientation: Orientation = Orientation.PORTRAIT
+    scaling: Scaling = Scaling.FIT
+
 
 # Pricing Quote Schemas
 class PricingQuoteRequest(BaseModel):
@@ -71,24 +85,28 @@ class PricingQuoteRequest(BaseModel):
     duplex: bool = False
     paper_size: str = "A4"
     page_range: str = "all"
+    items: Optional[List[BatchOrderItemInput]] = None
 
 
 class PricingQuoteResponse(BaseModel):
-    document_page_count: int
-    active_pages: int
-    copies: int
-    color_mode: str
-    duplex: bool
-    paper_size: str
-    sheets_count: int
-    rate_per_page_cents: int
-    raw_total_cents: int
-    duplex_discount_cents: int
-    subtotal_cents: int
-    minimum_order_cents: int
+    document_page_count: Optional[int] = None
+    active_pages: Optional[int] = None
+    copies: Optional[int] = None
+    color_mode: Optional[str] = None
+    duplex: Optional[bool] = None
+    paper_size: Optional[str] = None
+    sheets_count: Optional[int] = None
+    rate_per_page_cents: Optional[int] = None
+    raw_total_cents: Optional[int] = None
+    duplex_discount_cents: Optional[int] = None
+    subtotal_cents: Optional[int] = None
+    minimum_order_cents: Optional[int] = None
     final_amount_cents: int
     currency: str = "INR"
     formatted_total: str
+    total_documents: Optional[int] = None
+    total_pages: Optional[int] = None
+    items: Optional[List[Dict[str, Any]]] = None
 
 
 # Student Order Creation & Settings
@@ -100,6 +118,10 @@ class PrintConfigInput(BaseModel):
     page_range: str = "all"
     orientation: Orientation = Orientation.PORTRAIT
     scaling: Scaling = Scaling.FIT
+
+
+class BatchOrderCreateRequest(BaseModel):
+    items: List[BatchOrderItemInput]
 
 
 class OrderResponse(BaseModel):
@@ -115,6 +137,7 @@ class OrderResponse(BaseModel):
     estimated_wait_minutes: Optional[int] = None
     document_name: str
     document_pages: int
+    documents: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
 
 

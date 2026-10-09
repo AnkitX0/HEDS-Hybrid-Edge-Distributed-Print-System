@@ -236,7 +236,7 @@ async def get_shop_analytics(
         select(Order)
         .options(
             selectinload(Order.document),
-            selectinload(Order.print_specification),
+            selectinload(Order.print_specifications),
         )
         .where(Order.shop_id == shop.id, Order.created_at >= start_time)
         .order_by(Order.created_at.asc())

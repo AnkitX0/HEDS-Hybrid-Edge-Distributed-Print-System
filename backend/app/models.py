@@ -8,6 +8,7 @@ from app.modules.documents.models import Document
 from app.modules.orders.models import (
     Order,
     OrderState,
+    OrderDocument,
     PrintSpecification,
     ColorMode,
     Orientation,
@@ -38,6 +39,7 @@ __all__ = [
     "Document",
     "Order",
     "OrderState",
+    "OrderDocument",
     "PrintSpecification",
     "ColorMode",
     "Orientation",

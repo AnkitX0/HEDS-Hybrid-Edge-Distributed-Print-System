@@ -28,7 +28,8 @@ async def list_shop_queue(
         select(PrintJob)
         .options(
             selectinload(PrintJob.order).selectinload(Order.document),
-            selectinload(PrintJob.order).selectinload(Order.print_specification),
+            selectinload(PrintJob.order).selectinload(Order.print_specifications),
+            selectinload(PrintJob.order_document),
             selectinload(PrintJob.printer),
             selectinload(PrintJob.agent),
         )

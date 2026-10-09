@@ -79,6 +79,16 @@ export default function OrderTrackingPage() {
 
   const totalAmountFormatted = `₹${(order.total_amount_cents / 100).toFixed(2)}`;
 
+  const handleDownloadPdf = () => {
+    const link = document.createElement("a");
+    link.href = `/api/v1/orders/${guestToken}/receipt.pdf`;
+    link.download = `receipt_${order.order_number}.pdf`;
+    link.target = "_blank";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-4 max-w-md mx-auto">
       {/* Primary Token & Status Card */}
@@ -196,8 +206,12 @@ export default function OrderTrackingPage() {
         maxWidth="sm"
         footer={
           <>
+            <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
+              <Download className="w-3.5 h-3.5 mr-1" />
+              Download PDF
+            </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()}>
-              Print Receipt
+              Print
             </Button>
             <Button variant="primary" size="sm" onClick={() => setShowReceipt(false)}>
               Close

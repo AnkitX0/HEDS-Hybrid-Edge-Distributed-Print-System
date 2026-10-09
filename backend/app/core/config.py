@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     )
 
     APP_ENV: str = "development"
+    ENVIRONMENT: str = "development"
     DEBUG: bool = True
     PROJECT_NAME: str = "HEDS - Hybrid Edge Distributed Print System"
 
@@ -51,8 +52,17 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://localhost:3002",
         "http://localhost:8000",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str) and not v.strip().startswith("["):
+            return [i.strip() for i in v.split(",") if i.strip()]
+        return v
+
 
 
 settings = Settings()

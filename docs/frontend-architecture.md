@@ -2,11 +2,11 @@
 
 **Applications:**
 1. `apps/student-web` (Student Mobile-First PWA)
-2. `apps/shop-dashboard` (Shop Operator Operations Console)
+2. `apps/shop-dashboard` (Shop Operator Console)
 
 **Framework:** Next.js 14 (App Router) + TypeScript + Tailwind CSS  
-**State & Data Synchronization:** TanStack React Query v5  
-**Icons & Design Primitives:** Lucide React, Custom Industrial Design Tokens  
+**State & Data Synchronization:** TanStack React Query v5 + Server-Sent Events (SSE) fallback  
+**Icons & Design Primitives:** Lucide React, Clean Industrial Design System Tokens  
 
 ---
 
@@ -21,11 +21,11 @@ graph TD
     subgraph Frontend_Student [apps/student-web Architecture]
         NextStudent --> UIComp[UI Components & Layout]
         UIComp --> FeatMod[Feature Modules: shops / documents / pricing / orders]
-        FeatMod --> TQ_Student[TanStack Query v5 Server-State Layer]
+        FeatMod --> TQ_Student[TanStack Query v5 + SSE Layer]
         TQ_Student --> API_Student[API Client / Fetch Wrapper]
     end
 
-    API_Student -->|REST / HTTPS| FastAPI[FastAPI Cloud Orchestrator]
+    API_Student -->|REST / HTTPS / SSE| FastAPI[FastAPI Cloud Orchestrator]
 
     subgraph Backend_Cloud [Cloud Orchestration Layer]
         FastAPI --> AuthGuard[Security & Token Verification]
@@ -52,7 +52,7 @@ graph TD
 
     subgraph Frontend_Shop [apps/shop-dashboard Architecture]
         NextShop --> Shell[Persistent App Shell & Navigation Sidebar]
-        Shell --> Views[Views: Overview / Queue / Orders / Printers / Agents / Pricing / Audit / Settings]
+        Shell --> Views[Views: Overview / Queue / Orders / Pickup / Printers / Analytics / Payments / Pricing / QR / Settings]
         Views --> ShopContext[Shop & Multi-Tenant Context Provider]
         ShopContext --> TQ_Shop[TanStack Query Server-State Cache]
         TQ_Shop --> API_Shop[Authenticated API Client: Bearer JWT]
@@ -77,12 +77,12 @@ HEDS serves two distinct user personas with fundamentally different operational 
 1. **Student / Customer Persona (`student-web`):**
    * **Goal:** Zero friction, zero signups. Upload file, choose settings, pay, monitor live progress, present OTP at the counter.
    * **Device Profile:** Mobile-first smartphones, mobile Safari/Chrome, scanning physical QR codes at college print counters.
-   * **UX Mandate:** Fast loading (< 200KB initial bundle), instant visual feedback, clear price breakdown, prominent pickup OTP.
+   * **UX Mandate:** Fast loading (< 200KB initial bundle), instant visual feedback, clear price breakdown, perforated ticket token, prominent pickup OTP.
 
 2. **Shop Operator Persona (`shop-dashboard`):**
    * **Goal:** High-throughput print management, queue monitoring, paper/jam recovery, cash/UPI reconciliation, hardware health inspection.
    * **Device Profile:** Desktop computers, POS counter terminals, 1080p+ monitors.
-   * **UX Mandate:** High information density, keyboard navigation, persistent sidebar, real-time status indicators, low visual fatigue (restrained dark mode).
+   * **UX Mandate:** High clarity, clean light-mode surfaces (`bg-slate-50`), crisp dark text, primary HEDS Blue accents, zero glowing borders, instant operational legibility ("What is happening right now?", "What do I need to do?", "Is everything working?").
 
 ---
 
@@ -113,7 +113,7 @@ apps/student-web/src/
 ### Route Lifecycle:
 1. **`/s/[shop_slug]`**:
    * Reads `shop_slug` from path params.
-   * Queries `GET /api/v1/shops/{shop_slug}` via TanStack Query with 5s refetch.
+   * Queries `GET /api/v1/shops/{shop_slug}` via TanStack Query.
    * If `is_queue_paused`, displays notice and disables submission button.
    * On file selection: validates extension (PDF, PNG, JPG) and size (max 50MB).
    * Calculates local price preview based on authoritative shop rates.
@@ -122,8 +122,8 @@ apps/student-web/src/
    * Redirects to `/orders/{guest_token}`.
 2. **`/orders/[guest_token]`**:
    * Fetches `GET /api/v1/orders/{guest_token}`.
-   * Polls every 2.5s while state is non-terminal (`QUEUED`, `DISPATCHED`, `PRINTING`, `PICKUP_READY`).
-   * When `PICKUP_READY`: Displays large 6-digit Privacy Hold OTP code and instructions.
+   * Subscribes to real-time status updates via SSE (`/api/v1/orders/{guest_token}/events`) with polling fallback.
+   * When `PICKUP_READY`: Displays perforated ticket with large 6-digit Privacy Hold OTP code and counter pickup instructions.
    * When `COMPLETED`: Automatically stops polling and presents completion receipt.
 
 ---
@@ -137,29 +137,31 @@ apps/shop-dashboard/src/
 │   ├── layout.tsx              # Root HTML shell, QueryProvider
 │   ├── page.tsx                # Index redirect to /dashboard or /login
 │   ├── login/
-│   │   └── page.tsx            # Operator email/password authentication
+│   │   └── page.tsx            # Operator email/password authentication (clean minimal card)
 │   └── dashboard/
 │       └── page.tsx            # Operations shell hosting all views
 ├── components/
 │   ├── layout/
 │   │   ├── Sidebar.tsx         # Persistent left navigation with badge counts
-│   │   └── Header.tsx          # Current shop indicator & operator profile
+│   │   └── Header.tsx          # Current shop indicator, pause/resume toggle, operator profile
 │   ├── ui/
-│   │   ├── Button.tsx          # Primary, secondary, danger, ghost variants
-│   │   ├── Badge.tsx           # Semantic status badges
+│   │   ├── Button.tsx          # Primary HEDS Blue, white secondary, danger, ghost
+│   │   ├── Badge.tsx           # Semantic light pastel status badges
 │   │   ├── Input.tsx           # Standard text, number, and search inputs
 │   │   ├── Modal.tsx           # Accessible keyboard-navigable dialogs
 │   │   └── EmptyState.tsx      # Clean zero-data placeholders
 │   └── views/
-│       ├── OverviewView.tsx    # Live metric tiles, queue overview, test print
-│       ├── QueueView.tsx       # Live print job table with Retry/Cancel/Reconcile
+│       ├── OverviewView.tsx    # Today's Summary metrics, Current Printing hero card, Up Next, Ready, Printers
+│       ├── QueueView.tsx       # Live print job table with Retry/Cancel/Reconcile and filter pills
 │       ├── OrdersView.tsx      # Historical order log with status filters & search
-│       ├── PrintersView.tsx    # Hardware health, capabilities, diagnostics trigger
-│       ├── AgentsView.tsx      # Connected Edge PC nodes & heartbeat indicators
-│       ├── PricingView.tsx     # Rate editing modal (B&W, Color, Duplex, Min)
+│       ├── PickupView.tsx      # POS counter terminal with 6-digit OTP verification keypad
+│       ├── PrintersView.tsx    # Hardware health, active job, capabilities, diagnostics trigger
+│       ├── AnalyticsView.tsx   # Business metrics, walk-in distribution, print ratio charts
+│       ├── PaymentsView.tsx    # Financial settlement ledger
+│       ├── PricingView.tsx     # Rate editing cards (B&W, Color, Duplex, Min)
 │       ├── AuditLogsView.tsx   # Immutable security audit trail
-│       ├── QrView.tsx          # Counter QR code generator
-│       └── SettingsView.tsx    # Queue pause toggle and data retention settings
+│       ├── QrView.tsx          # Printable A4 counter flyer with real SVG QR matrix
+│       └── SettingsView.tsx    # Queue pause toggle and privacy policies
 ├── lib/
 │   ├── api.ts                  # Authenticated client with automatic Bearer token
 │   └── queryClient.ts          # Centralized QueryClient with retry & cache defaults
@@ -168,72 +170,34 @@ apps/shop-dashboard/src/
 
 ---
 
-## 5. Component Architecture & Design System Tokens
+## 5. Design System Tokens & Color Palette
 
-Both applications share a common aesthetic: **restrained, utilitarian, and high-contrast**.
+The user interface follows a professional productivity software design standard (clean light mode surfaces, HEDS Blue brand identity):
 
-### Visual Style Rules:
-* **Backgrounds:** Slate-950 and Slate-900 for dark mode (Dashboard); Slate-50 and pure White for mobile student flows.
-* **Borders:** Slate-800 in dark mode; Slate-200 in light mode. Subtle 1px dividers, zero floating box shadows.
-* **Typography:** `Inter` or standard system sans-serif. Monospace (`font-mono`) exclusively for Order IDs, OTPs, currency amounts, and dates.
-* **Semantic Colors:**
-  * `Emerald`: Successful completions, online hardware, active status.
-  * `Blue`: Actively processing, printing, leased, queued.
-  * `Amber`: Paused queues, degraded hardware, jobs awaiting reconciliation.
-  * `Rose/Red`: Hardware offline, print failures, rejected payments.
+### Color System
+- **Brand Primary:** HEDS Blue (`#2563EB` / `rgb(37, 99, 235)`)
+- **Background Surfaces:** Canvas `bg-slate-50`, Card surfaces `bg-white`, Borders `border-slate-200`
+- **Text:** Primary headings `text-slate-900`, Body `text-slate-700`, Secondary/Muted `text-slate-500`
+- **Status Colors:**
+  - `SUCCESS`: Emerald (`bg-emerald-50 text-emerald-700 border-emerald-200`)
+  - `WARNING / RECONCILING`: Amber (`bg-amber-50 text-amber-700 border-amber-200`)
+  - `ERROR / FAILED`: Red (`bg-rose-50 text-rose-700 border-rose-200`)
+  - `PRINTING / ACTIVE`: Blue (`bg-blue-50 text-blue-700 border-blue-200`)
+  - `QUEUED`: Slate (`bg-slate-100 text-slate-700 border-slate-200`)
 
----
-
-## 6. Server-State Management (TanStack Query v5)
-
-TanStack Query manages all remote asynchronous state with strict cache invalidation:
-
-### Key Conventions
-| Query Key Pattern | Cache Invalidation Trigger |
-|---|---|
-| `["shop", shopSlug]` | Window focus or 5s polling interval |
-| `["order", guestToken]` | Polled every 2.5s; stopped on `COMPLETED` |
-| `["shop-dashboard", shopId]` | Invalidated on Queue Pause or Test Print |
-| `["shop-queue", shopId]` | Invalidated after Retry, Cancel, or Reconcile |
-| `["shop-orders", shopId, filter]` | Filter changes or manual refresh |
-| `["shop-printers", shopId]` | Invalidated after Test Print trigger |
-| `["shop-pricing", shopId]` | Invalidated immediately after rate update |
+### Typography
+- Primary Sans-Serif: `Inter` or modern system sans-serif.
+- Monospace (`font-mono`): Restrained exclusively to Token IDs (`#27`), OTPs (`382910`), currency amounts (`₹8.00`), and hardware identifiers.
 
 ---
 
-## 7. Authentication & Authorization Boundaries
+## 6. Authentication & Security Boundaries
 
-1. **Guest Student Boundary:**
-   * No passwords, sessions, or cookies required.
-   * Authorization is granted exclusively via the cryptographically random `guest_access_token` (32 bytes URL-safe).
-   * Knowledge of `guest_access_token` grants read-only access to order status and read access to the OTP once printing completes.
-2. **Shop Operator Boundary:**
-   * Standard JSON Web Tokens (`HS256`, 24h expiration) issued via `POST /api/v1/auth/login`.
-   * Stored in browser `localStorage` as `heds_token`.
-   * Attached automatically to all administrative requests in the `Authorization: Bearer <token>` header.
-   * Scoped to specific roles: `SHOP_OPERATOR`, `SHOP_ADMIN`, or `PLATFORM_ADMIN`.
-
----
-
-## 8. Error, Loading, and Empty State Strategies
-
-* **Loading:** Monochromatic pulse spinners or skeletal line placeholders. No full-page blocking spinners once initial shell renders.
-* **Error Handling:** Inline alert banners with actionable guidance (e.g. "File exceeds 50MB limit", "Printer hardware busy").
-* **Empty States:** Clear illustrations and explanations (e.g. "Queue is currently empty — no print jobs pending").
-* **Network Disconnection:** Stale data remains visible while visual warning badges indicate reconnection attempts.
-
----
-
-## 9. Performance & Mobile Optimization
-
-* **Bundle Size:** Zero large UI component libraries (e.g., Material UI, Chakra). Vanilla Tailwind CSS ensures minimal CSS output.
-* **Image/PDF Handling:** Direct streaming upload to FastAPI backend; no base64 memory blowing on the client.
-* **Static Route Optimization:** Next.js static prerendering where applicable, client components (`use client`) isolated to interactive leaves.
-
----
-
-## 10. Future Real-Time Architecture (SSE)
-
-While 2.5s polling fulfills MVP requirements cleanly, the next phase incorporates Server-Sent Events:
-* **Primary:** `EventSource` listening on `GET /api/v1/orders/{guest_token}/events` and `GET /api/v1/shop/{shop_id}/events`.
-* **Fallback:** If SSE drops or fails, client seamlessly resumes TanStack Query polling.
+1. **Guest Student Access:**
+   * URL-safe 32-byte cryptographic token (`guest_access_token`).
+   * No registration, passwords, or personal profiles required.
+   * Scoped strictly to the specific order's status and pickup OTP.
+2. **Shop Operator Authorization:**
+   * JWT bearer tokens (`HS256`, 24h expiration) issued via `POST /api/v1/auth/login`.
+   * Automatically attached via authenticated API wrapper.
+   * Role-based access control (`SHOP_OPERATOR`, `SHOP_ADMIN`).

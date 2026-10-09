@@ -36,6 +36,6 @@ async def test_chaos_invalid_payloads_and_headers():
         # 5. Invalid pickup confirmation with nonexistent order
         resp = await client.post(
             "/api/v1/pickups/confirm",
-            json={"order_id": str(uuid.uuid4()), "otp": "999999"},
+            json={"order_id": str(uuid.uuid4())},
         )
         assert resp.status_code == 401  # Requires operator authentication

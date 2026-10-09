@@ -22,7 +22,10 @@ class PrintJob(Base):
     __tablename__ = "print_jobs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    order_document_id = Column(UUID(as_uuid=True), ForeignKey("order_documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    sequence = Column(Integer, default=1, nullable=False)
     shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
     printer_id = Column(UUID(as_uuid=True), ForeignKey("printers.id", ondelete="SET NULL"), nullable=True, index=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -44,6 +47,8 @@ class PrintJob(Base):
 
     error_message = Column(String(500), nullable=True)
 
-    order = relationship("Order", back_populates="print_job")
+    order = relationship("Order", back_populates="print_jobs")
+    order_document = relationship("OrderDocument", back_populates="print_job")
+    document = relationship("Document")
     printer = relationship("Printer", back_populates="jobs")
     agent = relationship("Agent", back_populates="jobs")

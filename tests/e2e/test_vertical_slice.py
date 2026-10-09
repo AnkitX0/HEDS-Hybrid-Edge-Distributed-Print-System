@@ -125,29 +125,28 @@ async def test_complete_e2e_student_to_pickup_workflow():
         assert student_track.status_code == 200
         assert student_track.json()["status"] == "PICKUP_READY"
 
-        # 9. Operator confirms student pickup: POST /api/v1/pickups/confirm
-        # To get the valid OTP to verify, let's look at Pickup salt & test valid OTP verification
-        # or use helper to retrieve OTP for test
+        # 9. Operator confirms student pickup via token: POST /api/v1/pickups/confirm
         async with AsyncSessionLocal() as session:
             operator = (await session.execute(select(User).where(User.email == "operator@campus-xerox.local"))).scalar_one()
             op_id = str(operator.id)
-
-            pickup_obj = (await session.execute(select(Pickup).where(Pickup.order_id == uuid.UUID(order_id)))).scalar_one()
-            from app.core.security import hash_pickup_otp
-            known_otp = "543210"
-            h, s = hash_pickup_otp(known_otp)
-            pickup_obj.otp_hash = h
-            pickup_obj.otp_salt = s
-            await session.commit()
 
         op_token = create_access_token({"sub": op_id, "email": "operator@campus-xerox.local", "role": "SHOP_OPERATOR"})
         confirm_resp = await client.post(
             "/api/v1/pickups/confirm",
             headers={"Authorization": f"Bearer {op_token}"},
-            json={"order_id": order_id, "otp": known_otp},
+            json={"order_id": order_id},
         )
         assert confirm_resp.status_code == 200
         assert confirm_resp.json()["status"] == "COMPLETED"
+
+        # Duplicate collection protection (idempotent 200 OK)
+        dup_resp = await client.post(
+            "/api/v1/pickups/confirm",
+            headers={"Authorization": f"Bearer {op_token}"},
+            json={"order_id": order_id},
+        )
+        assert dup_resp.status_code == 200
+        assert dup_resp.json()["status"] == "COMPLETED"
 
         # 10. Student sees final COMPLETED state
         final_track = await client.get(f"/api/v1/orders/{guest_token}")

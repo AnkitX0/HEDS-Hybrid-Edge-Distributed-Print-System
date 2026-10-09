@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.core.database import SyncSessionLocal
-from app.core.security import hash_password, generate_guest_order_token, hash_pickup_otp
+from app.core.security import hash_password, generate_guest_order_token
 from app.modules.agents.service import AgentService
 from app.models import (
     Tenant,
@@ -131,10 +131,10 @@ def seed():
             shop_id=shop1.id,
             name="Standard Campus Rates",
             paper_size="A4",
-            bw_per_page_cents=200,      # ₹2.00
+            bw_per_page_cents=100,      # ₹1.00
             color_per_page_cents=1000,  # ₹10.00
-            duplex_discount_cents=50,   # ₹0.50 discount per duplex sheet
-            minimum_order_cents=200,
+            duplex_discount_cents=0,    # standard per-page policy
+            minimum_order_cents=100,    # ₹1.00 base minimum
             is_active=True,
         )
         pr2 = PricingRule(
@@ -362,15 +362,11 @@ def seed():
                 )
                 session.add(job)
 
-            # Pickup OTP for Privacy Hold
+            # Pickup Record for counter collection
             if order_state in [OrderState.PICKUP_READY, OrderState.COMPLETED]:
-                otp = f"{482900 + i}"
-                otp_h, otp_s = hash_pickup_otp(otp)
                 pickup = Pickup(
                     order_id=order.id,
                     shop_id=shop1.id,
-                    otp_hash=otp_h,
-                    otp_salt=otp_s,
                     expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
                     confirmed_at=datetime.now(timezone.utc) if order_state == OrderState.COMPLETED else None,
                     confirmed_by_user_id=u_operator.id if order_state == OrderState.COMPLETED else None,

@@ -62,7 +62,15 @@ class StorageService:
 
     def get_file_stream(self, storage_path: str) -> BinaryIO:
         """Retrieve file binary stream for agent download or inspection"""
-        if self.backend == "local" or os.path.exists(storage_path):
+        if self.backend == "local":
+            if os.path.exists(storage_path):
+                return open(storage_path, "rb")
+            basename = os.path.basename(storage_path)
+            candidate = self.local_dir / basename
+            if candidate.exists():
+                return open(candidate, "rb")
+            raise FileNotFoundError(f"Local storage file not found: {storage_path}")
+        elif os.path.exists(storage_path):
             return open(storage_path, "rb")
         else:
             response = self.minio_client.get_object(settings.MINIO_BUCKET_NAME, storage_path)

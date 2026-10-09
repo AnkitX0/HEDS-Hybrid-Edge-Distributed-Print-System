@@ -49,6 +49,9 @@ seed:
 demo:
 	bash scripts/demo.sh
 
+demo-reset:
+	bash scripts/demo.sh
+
 dev-backend:
 	PYTHONPATH=backend $(PYTHON) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -61,8 +64,11 @@ dev-student:
 dev-shop:
 	cd apps/shop-dashboard && npm run dev -- -p 3001
 
+dev-qr:
+	cd apps/student-qr && npm run dev -- -p 3002
+
 test:
-	PYTHONPATH=backend:agent $(PYTHON) -m pytest tests/ backend/tests/ agent/tests/ -v
+	PYTHONPATH=backend:agent $(PYTHON) -m pytest tests/ -v
 
 test-rel:
 	PYTHONPATH=backend:agent $(PYTHON) -m pytest tests/reliability/ -v

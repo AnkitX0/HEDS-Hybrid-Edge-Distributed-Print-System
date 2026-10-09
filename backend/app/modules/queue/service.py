@@ -21,25 +21,57 @@ class QueueService:
         priority: int = 10,
     ) -> PrintJob:
         """
-        Creates a new PrintJob record for a paid order and transitions order to QUEUED.
+        Creates PrintJob record(s) for a paid order and transitions order to QUEUED.
+        Creates one job per document in multi-document batches preserving sequence.
         """
-        # Check if job already exists (idempotency check)
+        # Check if jobs already exist (idempotency check)
         existing = await session.execute(
             select(PrintJob).where(PrintJob.order_id == order.id)
         )
-        job = existing.scalar_one_or_none()
-        if job:
-            return job
+        existing_jobs = existing.scalars().all()
+        if existing_jobs:
+            return existing_jobs[0]
 
-        job = PrintJob(
-            order_id=order.id,
-            shop_id=order.shop_id,
-            priority=priority,
-            status=JobStatus.QUEUED,
-            attempt_count=0,
-            queued_at=datetime.now(timezone.utc),
+        from app.modules.orders.models import OrderDocument
+        doc_stmt = (
+            select(OrderDocument)
+            .where(OrderDocument.order_id == order.id)
+            .order_by(OrderDocument.sequence.asc())
         )
-        session.add(job)
+        docs_res = await session.execute(doc_stmt)
+        order_docs = docs_res.scalars().all()
+
+        first_job = None
+        if order_docs:
+            for od in order_docs:
+                job = PrintJob(
+                    order_id=order.id,
+                    shop_id=order.shop_id,
+                    document_id=od.document_id,
+                    order_document_id=od.id,
+                    sequence=od.sequence,
+                    priority=priority,
+                    status=JobStatus.QUEUED,
+                    attempt_count=0,
+                    queued_at=datetime.now(timezone.utc),
+                )
+                session.add(job)
+                if first_job is None:
+                    first_job = job
+        else:
+            job = PrintJob(
+                order_id=order.id,
+                shop_id=order.shop_id,
+                document_id=order.document_id,
+                sequence=1,
+                priority=priority,
+                status=JobStatus.QUEUED,
+                attempt_count=0,
+                queued_at=datetime.now(timezone.utc),
+            )
+            session.add(job)
+            first_job = job
+
         await session.flush()
 
         await OrderStateMachine.transition(
@@ -49,7 +81,7 @@ class QueueService:
             actor_type="SYSTEM",
             reason="Order payment settled; queued for print dispatch",
         )
-        return job
+        return first_job
 
     @staticmethod
     async def poll_and_lease_job(
@@ -62,6 +94,7 @@ class QueueService:
         Acquires next available job using atomic row-level locking (FOR UPDATE SKIP LOCKED)
         with deterministic capability-aware printer matching and lease assignment.
         """
+        from app.modules.orders.models import OrderDocument
         now = datetime.now(timezone.utc)
         lease_duration = timedelta(seconds=settings.JOB_LEASE_DURATION_SECONDS)
 
@@ -83,11 +116,15 @@ class QueueService:
             .join(Order, PrintJob.order_id == Order.id)
             .options(
                 selectinload(PrintJob.order).selectinload(Order.document),
-                selectinload(PrintJob.order).selectinload(Order.print_specification),
+                selectinload(PrintJob.order).selectinload(Order.print_specifications),
+                selectinload(PrintJob.order_document).selectinload(OrderDocument.print_specification),
+                selectinload(PrintJob.order_document).selectinload(OrderDocument.document),
+                selectinload(PrintJob.document),
                 selectinload(PrintJob.printer),
             )
             .where(
                 PrintJob.shop_id == shop_id,
+                Order.status.in_([OrderState.QUEUED, OrderState.PAID, OrderState.DISPATCHED, OrderState.PRINTING]),
                 or_(
                     PrintJob.status == JobStatus.QUEUED,
                     and_(
@@ -96,7 +133,7 @@ class QueueService:
                     ),
                 ),
             )
-            .order_by(PrintJob.priority.asc(), PrintJob.queued_at.asc())
+            .order_by(PrintJob.priority.asc(), PrintJob.queued_at.asc(), PrintJob.sequence.asc())
             .with_for_update(skip_locked=True)
             .limit(10)
         )
@@ -117,8 +154,13 @@ class QueueService:
                 selected_job = job
                 break
 
-            spec = job.order.print_specification
-            needed_color = (spec.color_mode.value == "COLOR") if spec else False
+            spec = None
+            if job.order_document and job.order_document.print_specification:
+                spec = job.order_document.print_specification
+            else:
+                spec = job.order.print_specification
+
+            needed_color = (spec.color_mode.value == "COLOR") if spec and hasattr(spec.color_mode, "value") else (str(spec.color_mode) == "COLOR" if spec else False)
             needed_duplex = bool(spec.duplex) if spec else False
             needed_paper = str(spec.paper_size or "A4").upper() if spec else "A4"
 
@@ -175,15 +217,16 @@ class QueueService:
         job.dispatched_at = now
         job.attempt_count += 1
 
-        # Transition order to DISPATCHED
-        await OrderStateMachine.transition(
-            session=session,
-            order=job.order,
-            target_state=OrderState.DISPATCHED,
-            actor_type="AGENT",
-            actor_id=str(agent_id),
-            reason=f"Leased by agent {agent_id} with lease {lease_id}",
-        )
+        # Transition order to DISPATCHED if in QUEUED/PAID
+        if job.order.status in [OrderState.QUEUED, OrderState.PAID]:
+            await OrderStateMachine.transition(
+                session=session,
+                order=job.order,
+                target_state=OrderState.DISPATCHED,
+                actor_type="AGENT",
+                actor_id=str(agent_id),
+                reason=f"Leased by agent {agent_id} with lease {lease_id}",
+            )
 
         await session.commit()
         return job

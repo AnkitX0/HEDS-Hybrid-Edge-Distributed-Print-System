@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.pool import NullPool
 from app.core.config import settings
 import app.core.database as db_module
+import app.models  # noqa: F401
 
 # Override async_engine with NullPool for tests so connections are not shared across asyncio loops
 test_async_engine = create_async_engine(

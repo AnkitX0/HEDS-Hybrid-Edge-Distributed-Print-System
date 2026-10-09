@@ -39,17 +39,13 @@ HEDS operates across three distinct network environments with varying levels of 
   ```
 - **Brute-Force Resistance**: At $2^{256}$ search space, brute-force enumeration of orders is computationally infeasible.
 
-### 2.2 Privacy-Preserving Pickup OTPs
-- **Security Requirement**: Shop operators or malicious database viewers must never see plaintext pickup OTPs until physically presented by the student at the counter.
-- **Implementation**:
-  - The student receives the plaintext 6-digit numeric OTP over the TLS session during order creation and status polling.
-  - The database only persists a salted PBKDF2/SHA-256 hash or secure cryptographic hash (`pickup_otp_hash`) alongside its salt.
-  - Verification:
-    ```python
-    def verify_pickup_otp(candidate_otp: str, stored_hash: str) -> bool:
-        return hmac.compare_digest(hash_otp(candidate_otp), stored_hash)
-    ```
-  - Direct string equality comparison is strictly forbidden to prevent timing side-channel attacks. Constant-time comparison (`hmac.compare_digest`) is enforced.
+### 2.2 Token-Based Counter Pickup
+- **Security & Operational Flow**: When physical printing completes, orders transition directly to `READY_FOR_PICKUP`.
+- **Counter Collection**:
+  - The student displays their order number/pickup token (e.g., `#51`) from their live tracking screen or receipt.
+  - The operator locates the order in their authenticated dashboard and clicks **Mark Collected**.
+  - The backend verifies operator authorization, transitions the order to `COMPLETED`, and writes an immutable audit record.
+- **Idempotency & Duplicate Protection**: Repeat collection calls for already completed orders are handled idempotently without error or duplicate transitions.
 
 ---
 

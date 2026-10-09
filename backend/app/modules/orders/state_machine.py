@@ -63,6 +63,11 @@ ALLOWED_TRANSITIONS: Dict[OrderState, Set[OrderState]] = {
         OrderState.CANCELLED,
         OrderState.REFUND_PENDING,
     },
+    OrderState.PAYMENT_FAILED: {
+        OrderState.PAYMENT_PENDING,
+        OrderState.PAID,
+        OrderState.CANCELLED,
+    },
     OrderState.DISPATCH_FAILED: {
         OrderState.QUEUED,  # Re-enqueue
         OrderState.CANCELLED,

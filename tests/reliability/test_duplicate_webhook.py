@@ -19,9 +19,18 @@ async def test_duplicate_payment_webhook_never_creates_duplicate_jobs():
       - No duplicate jobs in queue
     """
     async with AsyncSessionLocal() as session:
-        # Fetch seeded shop
-        res = await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))
-        shop = res.scalar_one()
+        res_base = await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))
+        base_shop = res_base.scalar_one()
+
+        # Isolated test shop so running edge agent does not poll this job
+        shop = Shop(
+            tenant_id=base_shop.tenant_id,
+            name="Webhook Test Shop",
+            slug=f"webhook-shop-{secrets.token_hex(4)}",
+            is_active=True,
+        )
+        session.add(shop)
+        await session.flush()
 
         # Create a fresh document and order in CREATED state
         doc = Document(
@@ -84,7 +93,7 @@ async def test_duplicate_payment_webhook_never_creates_duplicate_jobs():
 
         assert count == 1, f"Expected exactly 1 print job, but found {count}!"
 
-        # Verify order state
+        # Verify order state (may be QUEUED or already DISPATCHED if background agent leased it)
         order_stmt = select(Order).where(Order.id == uuid.UUID(order_id_str))
         refreshed_order = (await session.execute(order_stmt)).scalar_one()
-        assert refreshed_order.status == OrderState.QUEUED
+        assert refreshed_order.status in [OrderState.QUEUED, OrderState.DISPATCHED]

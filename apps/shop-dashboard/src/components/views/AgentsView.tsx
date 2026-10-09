@@ -35,12 +35,12 @@ export function AgentsView({ agents, isLoading, onRefresh }: AgentsViewProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">HEDS Edge Agents</h2>
-          <p className="text-xs text-slate-400">
+          <h1 className="text-base font-bold text-slate-900">Edge Agents & Devices</h1>
+          <p className="text-xs text-slate-500">
             Local daemon services running inside physical print shops managing local queues and hardware.
           </p>
         </div>
@@ -50,69 +50,62 @@ export function AgentsView({ agents, isLoading, onRefresh }: AgentsViewProps) {
           size="sm"
           onClick={onRefresh}
           disabled={isLoading}
-          className="flex items-center gap-1.5 self-start sm:self-auto"
+          icon={<RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          <span>Refresh Agents</span>
+          Refresh Agents
         </Button>
       </div>
 
       {/* Grid of Agents */}
       {isLoading && agents.length === 0 ? (
-        <div className="p-12 text-center text-xs text-slate-400 space-y-2 border border-slate-800 rounded-md bg-slate-900">
-          <div className="w-5 h-5 border-2 border-slate-600 border-t-blue-500 rounded-full animate-spin mx-auto" />
-          <p>Polling edge agent heartbeats...</p>
+        <div className="p-12 text-center text-xs text-slate-500 space-y-2 border border-slate-200 rounded-xl bg-white">
+          <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin mx-auto" />
+          <p>Scanning edge agents...</p>
         </div>
       ) : agents.length === 0 ? (
-        <EmptyState
-          title="No edge agents enrolled"
-          description="No HEDS Edge Agents have authenticated with this shop. Run the local daemon to bind printers."
-        />
+        <div className="bg-white border border-slate-200 rounded-xl p-8">
+          <EmptyState
+            title="No edge agents online"
+            description="Start the local Python print agent using `make run-agent`."
+          />
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {agents.map((agent) => (
             <div
               key={agent.id}
-              className="bg-slate-900 border border-slate-800 rounded-md p-4 space-y-3"
+              className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4 hover:border-slate-300 transition-colors"
             >
-              {/* Agent Title & Status */}
               <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded bg-slate-800 border border-slate-700 text-slate-300">
-                    <Server className="w-4 h-4" />
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                    <Server className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-sm text-slate-100">{agent.name}</h3>
-                    <p className="text-[11px] text-slate-400">
-                      Host: <span className="font-mono">{agent.hostname}</span> &bull; {agent.os_info}
+                    <h3 className="font-bold text-sm text-slate-900">{agent.name}</h3>
+                    <p className="text-xs text-slate-500 font-mono">
+                      {agent.hostname} &bull; v{agent.version}
                     </p>
                   </div>
                 </div>
 
-                <StatusIndicator
-                  status={agent.status}
-                />
+                <StatusIndicator status={agent.status} />
               </div>
 
-              {/* Agent Specs */}
-              <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
+              <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-slate-100">
                 <div>
-                  <span className="text-[11px] text-slate-400 block">Agent Daemon Version</span>
-                  <span className="text-slate-200 font-mono text-xs">
-                    v{agent.version}
-                  </span>
+                  <span className="text-slate-500 block">Host OS</span>
+                  <span className="font-medium text-slate-800">{agent.os_info || "Linux"}</span>
                 </div>
 
                 <div>
-                  <span className="text-[11px] text-slate-400 block">Bound Printers</span>
-                  <span className="text-slate-200 text-xs font-semibold">
-                    {agent.printer_count} {agent.printer_count === 1 ? "device" : "devices"}
-                  </span>
+                  <span className="text-slate-500 block">Connected Printers</span>
+                  <span className="font-medium text-slate-800">{agent.printer_count} devices</span>
                 </div>
 
                 <div className="col-span-2">
-                  <span className="text-[11px] text-slate-400 block">Heartbeat Status</span>
-                  <span className="text-slate-200 text-xs font-mono">
+                  <span className="text-slate-500 block">Last Cloud Heartbeat</span>
+                  <span className="font-medium text-slate-700">
                     {formatHeartbeat(agent.last_heartbeat_at)}
                   </span>
                 </div>

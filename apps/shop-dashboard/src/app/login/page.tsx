@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-
 import { apiClient, ApiError } from "@/lib/api/client";
 
 interface LoginResponse {
@@ -37,9 +36,9 @@ export default function LoginPage() {
     } catch (err: any) {
       if (err instanceof ApiError) {
         if (err.status === 401 || err.code === "UNAUTHORIZED") {
-          setError("Invalid email or password. Please check your credentials.");
+          setError("Invalid email or password. Please verify your credentials.");
         } else if (err.code === "NETWORK_ERROR" || err.code === "BACKEND_UNAVAILABLE" || err.status === 503) {
-          setError("Cannot connect to HEDS server. Please check your network or ensure the backend is running.");
+          setError("Unable to connect to HEDS service. Please check your network or ensure the backend is running.");
         } else if (err.status >= 500) {
           setError("Something went wrong on the server. Please try again.");
         } else {
@@ -53,38 +52,37 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 font-sans text-slate-100">
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-md p-6 space-y-5">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans text-slate-900">
+      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-8 space-y-6 shadow-sm">
         {/* Brand Header */}
         <div className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center text-white font-bold text-xs tracking-wider">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-xs tracking-wider">
               H
             </div>
-            <span className="font-semibold text-sm tracking-tight text-slate-100">
+            <span className="font-bold text-sm tracking-tight text-slate-900">
               HEDS
             </span>
           </div>
-          <h1 className="text-base font-semibold text-slate-100">Shop Operations Console</h1>
-          <p className="text-xs text-slate-400">
-            Sign in to manage print dispatch, queue leases, and pickups.
+          <h1 className="text-xl font-bold text-slate-900">Shop Operations</h1>
+          <p className="text-xs text-slate-500">
+            Sign in to access your print queue, counter controls, and printers.
           </p>
         </div>
 
         {error && (
-          <div className="p-3 bg-red-950/50 border border-red-800/80 rounded text-xs text-red-300">
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-3.5">
+        <form onSubmit={handleLogin} className="space-y-4">
           <Input
-            label="Operator Email"
+            label="Email"
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="bg-slate-950"
             autoComplete="email"
           />
 
@@ -94,7 +92,6 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="bg-slate-950"
             autoComplete="current-password"
           />
 
@@ -103,17 +100,16 @@ export default function LoginPage() {
               type="submit"
               variant="primary"
               disabled={loading}
-              className="w-full justify-center"
+              className="w-full justify-center h-10 text-sm font-semibold"
             >
-              {loading ? "Authenticating..." : "Sign In"}
+              {loading ? "Signing in..." : "Sign In"}
             </Button>
           </div>
         </form>
 
-        <div className="pt-3 border-t border-slate-800 text-[11px] text-slate-500 space-y-1">
-          <p className="font-medium text-slate-400">Pre-seeded Local Accounts:</p>
-          <p>Operator: <span className="font-mono text-slate-300">operator@campus-xerox.local</span> / <span className="font-mono text-slate-300">operator123</span></p>
-          <p>Admin: <span className="font-mono text-slate-300">admin@campus-xerox.local</span> / <span className="font-mono text-slate-300">admin123</span></p>
+        <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1 text-center">
+          <p className="font-medium text-slate-700">Default Credentials:</p>
+          <p className="font-mono text-slate-600">operator@campus-xerox.local / operator123</p>
         </div>
       </div>
     </div>

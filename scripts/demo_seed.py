@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.core.database import SyncSessionLocal
-from app.core.security import hash_password, generate_guest_order_token, hash_pickup_otp
+from app.core.security import hash_password, generate_guest_order_token
 from app.modules.agents.service import AgentService
 from app.models import (
     Tenant,
@@ -118,10 +118,10 @@ def seed_demo():
             shop_id=shop.id,
             name="Campus Standard Rates",
             paper_size="A4",
-            bw_per_page_cents=200,      # ₹2.00 / page
+            bw_per_page_cents=100,      # ₹1.00 / page base rate
             color_per_page_cents=1000,  # ₹10.00 / page
-            duplex_discount_cents=40,   # ₹0.40 duplex sheet discount
-            minimum_order_cents=200,    # ₹2.00 minimum
+            duplex_discount_cents=0,    # standard per-page policy
+            minimum_order_cents=100,    # ₹1.00 base minimum
             is_active=True,
         )
         session.add(pricing_rule)
@@ -205,7 +205,7 @@ def seed_demo():
         # 2. HDS-1043: QUEUED (4 pages, B&W, HP LaserJet Pro)
         # 3. HDS-1044: QUEUED (26 pages, Color Duplex, Xerox WorkCentre 7830)
         # 4. HDS-1045: QUEUED (6 pages, B&W, HP LaserJet Pro)
-        # 5. HDS-1040: PICKUP_READY (OTP 482913)
+        # 5. HDS-1040: PICKUP_READY (Token Ready)
         # 6. HDS-1046: PRINT_FAILED
         # 7. HDS-1047: RECONCILING
         # 8. HDS-1041: COMPLETED (id_document.pdf)
@@ -276,7 +276,6 @@ def seed_demo():
                 "job_state": JobStatus.COMPLETED,
                 "printer": p_hp,
                 "queued_offset": 12,
-                "otp": "482913",
             },
             {
                 "order_num": "HDS-1046",
@@ -393,13 +392,10 @@ def seed_demo():
             )
             session.add(job)
 
-            if s.get("otp"):
-                otp_h, otp_s = hash_pickup_otp(s["otp"])
+            if s["state"] in [OrderState.PICKUP_READY, OrderState.COMPLETED]:
                 pickup = Pickup(
                     order_id=order.id,
                     shop_id=shop.id,
-                    otp_hash=otp_h,
-                    otp_salt=otp_s,
                     expires_at=now + timedelta(hours=24),
                 )
                 session.add(pickup)
@@ -512,12 +508,9 @@ def seed_demo():
             )
             session.add(job)
 
-            otp_h, otp_s = hash_pickup_otp(f"{480000 + i}")
             pickup = Pickup(
                 order_id=order.id,
                 shop_id=shop.id,
-                otp_hash=otp_h,
-                otp_salt=otp_s,
                 expires_at=now + timedelta(hours=24),
                 confirmed_at=order.created_at + timedelta(minutes=5),
                 confirmed_by_user_id=u_operator.id,
@@ -530,7 +523,7 @@ def seed_demo():
             ("AGENT", "campus-agent-01", "PRINT_JOB_STARTED", "PrintJob", "HDS-1042", {"printer": "Xerox WorkCentre 7830", "note": "Job HDS-1042 started printing"}, now - timedelta(minutes=2)),
             ("SYSTEM", "PaymentGateway", "PAYMENT_SETTLED", "Payment", "HDS-1042", {"amount": 3240, "note": "Payment verified for HDS-1042"}, now - timedelta(minutes=3)),
             ("AGENT", "campus-agent-01", "AGENT_HEARTBEAT", "Agent", "campus-agent-01", {"status": "ONLINE", "queue_depth": 1, "note": "Agent campus-agent-01 heartbeat received"}, now - timedelta(minutes=4)),
-            ("SYSTEM", "PickupService", "PRIVACY_HOLD_ENGAGED", "Order", "HDS-1040", {"otp_ready": True, "note": "Job HDS-1040 moved to pickup hold"}, now - timedelta(minutes=5)),
+            ("SYSTEM", "PickupService", "PICKUP_READY", "Order", "HDS-1040", {"pickup_ready": True, "note": "Job HDS-1040 ready for counter collection"}, now - timedelta(minutes=5)),
         ]
 
         for actor_type, actor_id, action, res_type, res_id, metadata, timestamp in audit_events:

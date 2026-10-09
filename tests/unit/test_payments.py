@@ -89,3 +89,173 @@ async def test_razorpay_payment_gateway_hmac_verification():
         secret=webhook_secret,
     )
     assert wh_rejected is False
+
+
+@pytest.mark.asyncio
+async def test_client_payment_verification_endpoint():
+    """
+    Verifies that the /orders/{guest_token}/payment/verify endpoint cryptographically
+    validates the Razorpay HMAC signature before transitioning to PAID and enqueuing.
+    """
+    import secrets
+    from httpx import AsyncClient, ASGITransport
+    from sqlalchemy import select
+    from app.main import app
+    from app.core.database import AsyncSessionLocal
+    from app.models import Shop, Document, Order, OrderState, PrintJob, Payment
+    from app.core.config import settings
+
+    async with AsyncSessionLocal() as session:
+        shop = (await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))).scalar_one()
+        doc = Document(
+            shop_id=shop.id,
+            original_filename="verify_test.pdf",
+            sanitized_filename="verify_test.pdf",
+            storage_path="storage_data/verify.pdf",
+            mime_type="application/pdf",
+            file_size_bytes=20000,
+            page_count=2,
+            checksum_sha256=secrets.token_hex(32),
+        )
+        session.add(doc)
+        await session.flush()
+
+        order = Order(
+            shop_id=shop.id,
+            order_number=f"ORD-VERIFY-{secrets.token_hex(4)}",
+            guest_access_token=f"tok_{secrets.token_hex(16)}",
+            document_id=doc.id,
+            status=OrderState.PAYMENT_PENDING,
+            total_amount_cents=500,
+            currency="INR",
+            pricing_breakdown_json={"pages": 2},
+        )
+        session.add(order)
+        await session.commit()
+        guest_token = order.guest_access_token
+        order_id_str = str(order.id)
+
+    # Calculate HMAC signature using secret
+    rzp_order_id = f"order_{secrets.token_hex(8)}"
+    rzp_pay_id = f"pay_{secrets.token_hex(8)}"
+    msg = f"{rzp_order_id}|{rzp_pay_id}"
+    secret = settings.RAZORPAY_KEY_SECRET or "secret_test_key_xyz789"
+    # Ensure gateway has secret for test
+    from app.modules.payments.gateway import RazorpayPaymentGateway
+    import app.modules.payments.gateway as gw_module
+    orig_fn = gw_module.get_payment_gateway
+    gw_module.get_payment_gateway = lambda: RazorpayPaymentGateway(
+        key_id="rzp_test_123",
+        key_secret=secret,
+        webhook_secret="wh_secret_123",
+    )
+
+    try:
+        valid_sig = hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Tampered signature must fail with 400
+            bad_resp = await client.post(
+                f"/api/v1/orders/{guest_token}/payment/verify",
+                json={
+                    "razorpay_payment_id": rzp_pay_id,
+                    "razorpay_order_id": rzp_order_id,
+                    "razorpay_signature": "tampered_signature_abc_1234567890",
+                },
+            )
+            assert bad_resp.status_code == 400
+
+            # 2. Valid signature must succeed (200), mark order PAID, and enqueue
+            good_resp = await client.post(
+                f"/api/v1/orders/{guest_token}/payment/verify",
+                json={
+                    "razorpay_payment_id": rzp_pay_id,
+                    "razorpay_order_id": rzp_order_id,
+                    "razorpay_signature": valid_sig,
+                },
+            )
+            assert good_resp.status_code == 200
+            assert good_resp.json()["status"] == "SUCCESS"
+
+        async with AsyncSessionLocal() as session:
+            import uuid
+            refreshed = (await session.execute(select(Order).where(Order.id == uuid.UUID(order_id_str)))).scalar_one()
+            assert refreshed.status == OrderState.QUEUED
+    finally:
+        gw_module.get_payment_gateway = orig_fn
+
+
+@pytest.mark.asyncio
+async def test_pickup_token_collection_and_idempotent_duplicate_protection():
+    """
+    Verifies token-based counter pickup flow:
+    - Order is prepared for pickup
+    - Operator marks collected via token
+    - Order transitions to COMPLETED
+    - Duplicate collection is idempotent and protected
+    - Nonexistent order lookup is rejected cleanly
+    """
+    import secrets
+    import uuid
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionLocal
+    from app.models import Shop, Document, Order, OrderState
+    from app.modules.pickups.service import pickup_service
+    from app.core.exceptions import HEDSException
+
+    async with AsyncSessionLocal() as session:
+        shop = (await session.execute(select(Shop).where(Shop.slug == "campus-xerox"))).scalar_one()
+        doc = Document(
+            shop_id=shop.id,
+            original_filename="pickup_test.pdf",
+            sanitized_filename="pickup_test.pdf",
+            storage_path="storage_data/pickup_test.pdf",
+            mime_type="application/pdf",
+            file_size_bytes=10000,
+            page_count=1,
+            checksum_sha256=secrets.token_hex(32),
+        )
+        session.add(doc)
+        await session.flush()
+
+        order = Order(
+            shop_id=shop.id,
+            order_number=f"ORD-TOKEN-{secrets.token_hex(4)}",
+            guest_access_token=f"tok_{secrets.token_hex(16)}",
+            document_id=doc.id,
+            status=OrderState.PRINT_COMPLETED,
+            total_amount_cents=200,
+            currency="INR",
+            pricing_breakdown_json={"pages": 1},
+        )
+        session.add(order)
+        await session.flush()
+
+        # Prepare for counter pickup
+        await pickup_service.prepare_for_pickup(session, order)
+        await session.commit()
+        order_id = order.id
+
+    # Confirm collection
+    async with AsyncSessionLocal() as session:
+        completed_order = await pickup_service.confirm_pickup(
+            session=session,
+            order_id=order_id,
+        )
+        assert completed_order.status == OrderState.COMPLETED
+
+        # Duplicate collection protection (must be idempotent)
+        dup_completed = await pickup_service.confirm_pickup(
+            session=session,
+            order_id=order_id,
+        )
+        assert dup_completed.status == OrderState.COMPLETED
+
+        # Nonexistent order rejection
+        with pytest.raises(HEDSException) as exc_info:
+            await pickup_service.confirm_pickup(
+                session=session,
+                order_id=uuid.uuid4(),
+            )
+        assert exc_info.value.code == "PICKUP_NOT_FOUND"

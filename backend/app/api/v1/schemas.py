@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.modules.orders.models import OrderState, ColorMode, Orientation, Scaling
 from app.modules.printers.models import PrinterStatus, PrinterAdapterType
@@ -35,6 +35,130 @@ class ShopPublicInfo(BaseModel):
     pricing: Dict[str, Any]
 
 
+# Document & Upload Schemas
+class DocumentItemDetail(BaseModel):
+    id: Optional[str] = None
+    document_id: Optional[str] = None
+    filename: str
+    page_count: int
+    file_size_bytes: int
+    mime_type: str
+    error: Optional[str] = None
+    status: Optional[str] = "READY"
+
+
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    file_size_bytes: int
+    page_count: int
+    mime_type: str
+    documents: Optional[List[DocumentItemDetail]] = None
+
+
+class MultiDocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    total_size_bytes: int
+    total_pages: int
+    mime_type: str = "application/pdf"
+    documents: List[DocumentItemDetail]
+
+
+# Canonical Print Specification per Document
+class BatchOrderItemInput(BaseModel):
+    document_id: str
+    copies: int = Field(default=1, ge=1, le=100)
+    color_mode: ColorMode = ColorMode.BW
+    duplex: bool = False
+    paper_size: str = "A4"
+    page_range: str = "all"
+    orientation: Orientation = Orientation.PORTRAIT
+    scaling: Scaling = Scaling.FIT
+
+    @field_validator("copies", mode="before")
+    @classmethod
+    def validate_copies(cls, v):
+        try:
+            val = int(v)
+            return max(1, min(100, val))
+        except (ValueError, TypeError):
+            return 1
+
+    @field_validator("color_mode", mode="before")
+    @classmethod
+    def validate_color_mode(cls, v):
+        if isinstance(v, ColorMode):
+            return v
+        s = str(v or "BW").strip().upper()
+        return ColorMode.COLOR if s == "COLOR" else ColorMode.BW
+
+    @field_validator("orientation", mode="before")
+    @classmethod
+    def validate_orientation(cls, v):
+        if isinstance(v, Orientation):
+            return v
+        s = str(v or "PORTRAIT").strip().upper()
+        if s == "LANDSCAPE":
+            return Orientation.LANDSCAPE
+        return Orientation.PORTRAIT
+
+    @field_validator("scaling", mode="before")
+    @classmethod
+    def validate_scaling(cls, v):
+        if isinstance(v, Scaling):
+            return v
+        s = str(v or "FIT").strip().upper()
+        if s == "ACTUAL":
+            return Scaling.ACTUAL
+        return Scaling.FIT
+
+    @field_validator("paper_size", mode="before")
+    @classmethod
+    def validate_paper_size(cls, v):
+        s = str(v or "A4").strip().upper()
+        return s if s else "A4"
+
+    @field_validator("page_range", mode="before")
+    @classmethod
+    def validate_page_range(cls, v):
+        s = str(v or "all").strip()
+        return s if s else "all"
+
+
+# Pricing Quote Schemas
+class PricingQuoteRequest(BaseModel):
+    document_id: Optional[str] = None
+    document_page_count: Optional[int] = None
+    copies: int = Field(default=1, ge=1, le=100)
+    color_mode: ColorMode = ColorMode.BW
+    duplex: bool = False
+    paper_size: str = "A4"
+    page_range: str = "all"
+    items: Optional[List[BatchOrderItemInput]] = None
+
+
+class PricingQuoteResponse(BaseModel):
+    document_page_count: Optional[int] = None
+    active_pages: Optional[int] = None
+    copies: Optional[int] = None
+    color_mode: Optional[str] = None
+    duplex: Optional[bool] = None
+    paper_size: Optional[str] = None
+    sheets_count: Optional[int] = None
+    rate_per_page_cents: Optional[int] = None
+    raw_total_cents: Optional[int] = None
+    duplex_discount_cents: Optional[int] = None
+    subtotal_cents: Optional[int] = None
+    minimum_order_cents: Optional[int] = None
+    final_amount_cents: int
+    currency: str = "INR"
+    formatted_total: str
+    total_documents: Optional[int] = None
+    total_pages: Optional[int] = None
+    items: Optional[List[Dict[str, Any]]] = None
+
+
 # Student Order Creation & Settings
 class PrintConfigInput(BaseModel):
     copies: int = Field(default=1, ge=1, le=100)
@@ -44,6 +168,10 @@ class PrintConfigInput(BaseModel):
     page_range: str = "all"
     orientation: Orientation = Orientation.PORTRAIT
     scaling: Scaling = Scaling.FIT
+
+
+class BatchOrderCreateRequest(BaseModel):
+    items: List[BatchOrderItemInput]
 
 
 class OrderResponse(BaseModel):
@@ -59,7 +187,7 @@ class OrderResponse(BaseModel):
     estimated_wait_minutes: Optional[int] = None
     document_name: str
     document_pages: int
-    pickup_otp: Optional[str] = None  # Populated only if PICKUP_READY
+    documents: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
 
 
@@ -75,6 +203,15 @@ class PaymentResponse(BaseModel):
     status: str
     gateway: str
     message: str
+    gateway_order_id: Optional[str] = None
+    currency: Optional[str] = "INR"
+    key_id: Optional[str] = None
+
+
+class PaymentVerifyRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
 
 
 # Edge Agent Schemas
@@ -117,8 +254,10 @@ class JobStatusUpdateRequest(BaseModel):
 
 # Pickup Verification
 class PickupConfirmRequest(BaseModel):
-    order_id: str
-    otp: str
+    order_id: Optional[str] = None
+    order_number: Optional[str] = None
+    token: Optional[str] = None
+    otp: Optional[str] = None
 
 
 # Operator Actions

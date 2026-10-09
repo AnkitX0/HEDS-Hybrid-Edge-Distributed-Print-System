@@ -1,262 +1,380 @@
 import React, { useState } from "react";
-import { Search, RotateCcw, AlertTriangle, ShieldCheck, X } from "lucide-react";
-import { StatusIndicator } from "../ui/StatusIndicator";
-import { Button } from "../ui/Button";
-import { Input } from "../ui/Input";
-import { EmptyState } from "../ui/EmptyState";
+import { Search, FileText, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Clock } from "lucide-react";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 interface QueueViewProps {
   queueItems: any[];
-  onVerifyOtp: (item: any) => void;
-  onRetry: (jobId: string) => void;
-  onCancel: (jobId: string) => void;
-  onReconcile: (job: any) => void;
-  onRefresh: () => void;
+  printers: any[];
+  onMarkCollected: (item: any) => Promise<boolean | void> | void;
+  onOpenReconcileModal: (item: any) => void;
+  onRetryJob: (jobId: string) => Promise<boolean | void> | void;
+  onCancelJob: (jobId: string) => Promise<boolean | void> | void;
 }
 
-export function QueueView({
+export const QueueView: React.FC<QueueViewProps> = ({
   queueItems,
-  onVerifyOtp,
-  onRetry,
-  onCancel,
-  onReconcile,
-  onRefresh,
-}: QueueViewProps) {
+  printers,
+  onMarkCollected,
+  onOpenReconcileModal,
+  onRetryJob,
+  onCancelJob,
+}) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterTab, setFilterTab] = useState<"ALL" | "QUEUED" | "PRINTING" | "PICKUP_READY" | "ATTENTION">("ALL");
+  const [selectedTab, setSelectedTab] = useState<string>("ALL");
+  const [selectedPrinter, setSelectedPrinter] = useState<string>("ALL");
 
-  // Filtering
+  // Track per-item async action state: idle | loading | success | failure
+  const [actionStates, setActionStates] = useState<
+    Record<string, { status: "idle" | "loading" | "success" | "failure"; message?: string }>
+  >({});
+
+  const handleMarkCollectedClick = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (actionStates[key]?.status === "loading") return; // Prevent double clicks / race conditions
+
+    setActionStates((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    try {
+      await onMarkCollected(item);
+      setActionStates((prev) => ({ ...prev, [key]: { status: "success" } }));
+    } catch {
+      setActionStates((prev) => ({
+        ...prev,
+        [key]: { status: "failure", message: "Could not mark this order as collected." },
+      }));
+      // Reset back to idle after 3 seconds so operator can retry
+      setTimeout(() => {
+        setActionStates((prev) => ({ ...prev, [key]: { status: "idle" } }));
+      }, 3000);
+    }
+  };
+
+  const handleRetryClick = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (actionStates[key]?.status === "loading") return;
+
+    setActionStates((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    try {
+      await onRetryJob(item.job_id);
+      setActionStates((prev) => ({ ...prev, [key]: { status: "success" } }));
+    } catch {
+      setActionStates((prev) => ({
+        ...prev,
+        [key]: { status: "failure", message: "Could not retry job." },
+      }));
+      setTimeout(() => {
+        setActionStates((prev) => ({ ...prev, [key]: { status: "idle" } }));
+      }, 3000);
+    }
+  };
+
+  const handleCancelClick = async (item: any) => {
+    const key = item.job_id || item.order_id || item.id;
+    if (actionStates[key]?.status === "loading") return;
+
+    setActionStates((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    try {
+      await onCancelJob(item.job_id);
+      setActionStates((prev) => ({ ...prev, [key]: { status: "success" } }));
+    } catch {
+      setActionStates((prev) => ({
+        ...prev,
+        [key]: { status: "failure", message: "Could not cancel job." },
+      }));
+      setTimeout(() => {
+        setActionStates((prev) => ({ ...prev, [key]: { status: "idle" } }));
+      }, 3000);
+    }
+  };
+
   const filteredItems = queueItems.filter((item) => {
-    // Search query matching
-    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      !q ||
-      item.order_number?.toLowerCase().includes(q) ||
-      item.document_name?.toLowerCase().includes(q);
+      item.order_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.document_name?.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (!matchesSearch) return false;
 
-    // Filter tab
-    if (filterTab === "QUEUED") return item.status === "QUEUED";
-    if (filterTab === "PRINTING") return item.status === "PRINTING" || item.status === "DISPATCHED";
-    if (filterTab === "PICKUP_READY") return item.order_status === "PICKUP_READY";
-    if (filterTab === "ATTENTION") return item.status === "FAILED" || item.status === "RECONCILING";
+    if (selectedPrinter !== "ALL" && item.printer_name !== selectedPrinter) return false;
 
+    if (selectedTab === "ALL") return true;
+    if (selectedTab === "WAITING") return item.status === "QUEUED";
+    if (selectedTab === "PRINTING") return item.status === "PRINTING";
+    if (selectedTab === "READY") return item.order_status === "PICKUP_READY" || item.status === "COMPLETED";
+    if (selectedTab === "ATTENTION") return item.status === "FAILED" || item.status === "RECONCILING";
     return true;
   });
 
   return (
     <div className="space-y-4">
-      {/* Controls Bar: Filter tabs & Search */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-md text-xs">
-          <button
-            onClick={() => setFilterTab("ALL")}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              filterTab === "ALL"
-                ? "bg-slate-800 text-slate-100 shadow-xs"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            All Jobs ({queueItems.length})
-          </button>
-          <button
-            onClick={() => setFilterTab("QUEUED")}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              filterTab === "QUEUED"
-                ? "bg-slate-800 text-slate-100 shadow-xs"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Queued
-          </button>
-          <button
-            onClick={() => setFilterTab("PRINTING")}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              filterTab === "PRINTING"
-                ? "bg-slate-800 text-slate-100 shadow-xs"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Spooling
-          </button>
-          <button
-            onClick={() => setFilterTab("PICKUP_READY")}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              filterTab === "PICKUP_READY"
-                ? "bg-slate-800 text-purple-300 shadow-xs"
-                : "text-slate-400 hover:text-purple-300"
-            }`}
-          >
-            Pickup Ready
-          </button>
-          <button
-            onClick={() => setFilterTab("ATTENTION")}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              filterTab === "ATTENTION"
-                ? "bg-slate-800 text-rose-300 shadow-xs"
-                : "text-slate-400 hover:text-rose-300"
-            }`}
-          >
-            Attention
-          </button>
+      {/* Subheader Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Print Queue</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Monitor active, printing, and waiting jobs</p>
         </div>
 
-        {/* Search Input */}
         <div className="flex items-center gap-2">
-          <div className="w-64">
-            <Input
-              placeholder="Search by order or file..."
+          {/* Search */}
+          <div className="relative w-48 sm:w-64">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search token or document..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              icon={<Search className="w-3.5 h-3.5" />}
+              className="w-full h-8 bg-white border border-slate-200 rounded pl-8 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-600"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={onRefresh} icon={<RotateCcw className="w-3 h-3" />}>
-            Refresh
-          </Button>
+
+          {/* Printer Filter */}
+          <select
+            value={selectedPrinter}
+            onChange={(e) => setSelectedPrinter(e.target.value)}
+            className="h-8 px-2 text-xs bg-white border border-slate-200 rounded font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="ALL">All Printers</option>
+            {printers.map((p) => (
+              <option key={p.id} value={p.name}>
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Main Queue Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950/70 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
-              <tr>
-                <th className="px-3.5 py-2.5 w-12 text-center">Pos</th>
-                <th className="px-3.5 py-2.5">Order</th>
-                <th className="px-3.5 py-2.5">Document</th>
-                <th className="px-3.5 py-2.5">Settings</th>
-                <th className="px-3.5 py-2.5">Price</th>
-                <th className="px-3.5 py-2.5">Assigned Device</th>
-                <th className="px-3.5 py-2.5">Status</th>
-                <th className="px-3.5 py-2.5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {filteredItems.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-8">
-                    <EmptyState
-                      title="No print jobs match criteria"
-                      description="There are currently no print jobs matching the selected filters or search terms."
-                    />
-                  </td>
+      {/* Filter Tabs */}
+      <div className="flex items-center gap-1 border-b border-slate-200 pb-2 text-xs">
+        {[
+          { id: "ALL", label: "All" },
+          { id: "WAITING", label: "Waiting" },
+          { id: "PRINTING", label: "Printing" },
+          { id: "READY", label: "Ready" },
+          { id: "ATTENTION", label: "Attention" },
+        ].map((tab) => {
+          const isSelected = selectedTab === tab.id;
+          const count =
+            tab.id === "ALL"
+              ? queueItems.length
+              : tab.id === "WAITING"
+              ? queueItems.filter((i) => i.status === "QUEUED").length
+              : tab.id === "PRINTING"
+              ? queueItems.filter((i) => i.status === "PRINTING").length
+              : tab.id === "READY"
+              ? queueItems.filter((i) => i.order_status === "PICKUP_READY" || i.status === "COMPLETED").length
+              : queueItems.filter((i) => i.status === "FAILED" || i.status === "RECONCILING").length;
+
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setSelectedTab(tab.id)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                isSelected
+                  ? "bg-slate-900 text-white font-semibold shadow-xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              }`}
+            >
+              {tab.label} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Queue Table */}
+      <Card padding="none">
+        {filteredItems.length === 0 ? (
+          <EmptyState
+            icon={FileText}
+            title="Queue is clear"
+            description="There are currently no active print jobs matching your criteria."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] text-left text-xs table-fixed border-collapse">
+              <colgroup>
+                <col className="w-[90px]" />
+                <col className="w-[230px]" />
+                <col className="w-[60px]" />
+                <col className="w-[110px]" />
+                <col className="w-[130px]" />
+                <col className="w-[110px]" />
+                <col className="w-[80px]" />
+                <col className="w-[150px]" />
+              </colgroup>
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200 font-mono">
+                <tr className="h-[40px]">
+                  <th className="px-3.5 py-2">Token</th>
+                  <th className="px-3 py-2">Document</th>
+                  <th className="px-3 py-2">Pages</th>
+                  <th className="px-3 py-2">Settings</th>
+                  <th className="px-3 py-2">Printer</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Wait</th>
+                  <th className="px-3.5 py-2 text-right">Action</th>
                 </tr>
-              ) : (
-                filteredItems.map((item) => {
-                  const isPickupReady = item.order_status === "PICKUP_READY";
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-sans">
+                {filteredItems.map((item) => {
+                  const key = item.job_id || item.order_id || item.id;
+                  const itemState = actionStates[key] || { status: "idle" };
+
+                  const isOrderCollected = item.order_status === "COMPLETED" || itemState.status === "success";
+                  const isPickupReady = (item.order_status === "PICKUP_READY" || (item.status === "COMPLETED" && item.order_status !== "COMPLETED")) && !isOrderCollected;
                   const isFailed = item.status === "FAILED";
                   const isReconciling = item.status === "RECONCILING";
+                  const isPrinting = item.status === "PRINTING" && !isOrderCollected && !isPickupReady;
+                  const isQueued = item.status === "QUEUED" && !isOrderCollected && !isPickupReady;
+
+                  const tokenDisplay = item.order_number?.includes("-")
+                    ? `#${item.order_number.split("-").pop()}`
+                    : `#${item.order_number}`;
+
+                  const btnFootprint = "w-[124px] min-w-[124px] max-w-[124px] h-[36px] min-h-[36px] max-h-[36px] rounded-md text-xs font-medium inline-flex items-center justify-center box-border select-none shrink-0 transition-colors duration-150";
 
                   return (
-                    <tr
-                      key={item.job_id}
-                      className={`hover:bg-slate-800/40 transition-colors ${
-                        isPickupReady ? "bg-purple-950/15" : isFailed ? "bg-rose-950/10" : ""
-                      }`}
-                    >
-                      <td className="px-3.5 py-2.5 text-center font-mono text-slate-500 font-semibold">
-                        {item.position ? `#${item.position}` : "—"}
+                    <tr key={key} className="hover:bg-slate-50/80 transition-colors h-[54px] max-h-[54px]">
+                      {/* Token */}
+                      <td className="px-3.5 py-2 font-mono font-bold text-slate-900 text-sm whitespace-nowrap overflow-hidden">
+                        {tokenDisplay}
                       </td>
-                      <td className="px-3.5 py-2.5">
-                        <span className="font-mono font-semibold text-slate-100 block">
-                          {item.order_number}
-                        </span>
-                        <span className="text-[10px] text-slate-500">
-                          {new Date(item.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <p className="font-medium text-slate-200 truncate max-w-[180px]">
+
+                      {/* Document with ellipsis & title tooltip */}
+                      <td className="px-3 py-2 font-medium text-slate-800">
+                        <div className="truncate max-w-[215px]" title={item.document_name}>
                           {item.document_name}
-                        </p>
-                        <p className="text-[11px] text-slate-400">{item.pages} pages</p>
+                        </div>
                       </td>
-                      <td className="px-3.5 py-2.5 text-[11px] text-slate-300">
-                        <span>{item.copies}x copies</span>
-                        <span className="text-slate-500 block">
-                          {item.color_mode} &bull; {item.duplex ? "Duplex" : "Simplex"}
-                        </span>
-                      </td>
-                      <td className="px-3.5 py-2.5 font-medium text-slate-200">
-                        ₹{(item.total_amount_cents / 100).toFixed(2)}
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <span className="text-slate-300 block truncate max-w-[140px]">
-                          {item.printer_name}
-                        </span>
-                        <span className="text-[10px] text-slate-500 block truncate max-w-[140px]">
-                          {item.agent_name}
-                        </span>
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <StatusIndicator
-                          status={isPickupReady ? "PICKUP_READY" : item.status}
-                        />
-                        {item.error_message && (
-                          <span className="text-[10px] text-rose-400 block truncate max-w-[140px] mt-0.5">
-                            {item.error_message}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right space-x-1.5 whitespace-nowrap">
-                        {isPickupReady && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => onVerifyOtp(item)}
-                            icon={<ShieldCheck className="w-3 h-3" />}
-                          >
-                            Verify OTP
-                          </Button>
-                        )}
 
-                        {isFailed && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => onRetry(item.job_id)}
-                            icon={<RotateCcw className="w-3 h-3" />}
-                          >
-                            Retry
-                          </Button>
-                        )}
+                      {/* Pages */}
+                      <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">
+                        {item.pages}
+                      </td>
 
-                        {isReconciling && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => onReconcile(item)}
-                            icon={<AlertTriangle className="w-3 h-3 text-orange-400" />}
-                          >
-                            Reconcile
-                          </Button>
-                        )}
+                      {/* Settings */}
+                      <td className="px-3 py-2 text-slate-600 text-[11px] whitespace-nowrap overflow-hidden">
+                        {item.color_mode} &bull; {item.duplex ? "Duplex" : "Single"}
+                      </td>
 
-                        {item.status === "QUEUED" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onCancel(item.job_id)}
-                          >
-                            Cancel
-                          </Button>
-                        )}
+                      {/* Printer */}
+                      <td className="px-3 py-2 font-mono text-slate-700 text-[11px]">
+                        <div className="truncate max-w-[120px]" title={item.printer_name || "HP LaserJet Pro 4004"}>
+                          {item.printer_name || "HP LaserJet Pro 4004"}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <StatusBadge status={isOrderCollected ? "COMPLETED" : isPickupReady ? "READY" : item.status} />
+                      </td>
+
+                      {/* Wait Time */}
+                      <td className="px-3 py-2 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                        {isOrderCollected ? "Done" : isPickupReady ? "At Counter" : isPrinting ? "Now" : "~1 min"}
+                      </td>
+
+                      {/* Stable Action Column (150px column, 36px x 124px invariant button footprint) */}
+                      <td className="px-3.5 py-2 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end h-[36px]">
+                          {isOrderCollected ? (
+                            <div className={`${btnFootprint} bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono shadow-2xs`}>
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
+                              <span>Collected</span>
+                            </div>
+                          ) : isPickupReady ? (
+                            itemState.status === "loading" ? (
+                              <button
+                                disabled
+                                className={`${btnFootprint} bg-blue-50 text-blue-700 border border-blue-200 cursor-not-allowed shadow-2xs`}
+                              >
+                                <svg
+                                  className="animate-spin mr-1.5 h-3.5 w-3.5 text-blue-600 shrink-0"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Collecting...</span>
+                              </button>
+                            ) : itemState.status === "failure" ? (
+                              <button
+                                onClick={() => handleMarkCollectedClick(item)}
+                                className={`${btnFootprint} bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100 shadow-2xs`}
+                                title={itemState.message || "Could not mark this order as collected. Click to retry."}
+                              >
+                                <span>Retry Collect</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleMarkCollectedClick(item)}
+                                className={`${btnFootprint} bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              >
+                                <span>Mark Collected</span>
+                              </button>
+                            )
+                          ) : isFailed ? (
+                            itemState.status === "loading" ? (
+                              <button
+                                disabled
+                                className={`${btnFootprint} bg-slate-50 text-slate-600 border border-slate-200 cursor-not-allowed shadow-2xs`}
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin text-slate-500 shrink-0" />
+                                <span>Retrying...</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRetryClick(item)}
+                                className={`${btnFootprint} bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-xs`}
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500 shrink-0" />
+                                <span>Retry Print</span>
+                              </button>
+                            )
+                          ) : isReconciling ? (
+                            <button
+                              onClick={() => onOpenReconcileModal(item)}
+                              className={`${btnFootprint} bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white shadow-xs`}
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                              <span>Reconcile</span>
+                            </button>
+                          ) : isQueued ? (
+                            itemState.status === "loading" ? (
+                              <button
+                                disabled
+                                className={`${btnFootprint} bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed`}
+                              >
+                                <span>Cancelling...</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleCancelClick(item)}
+                                className={`${btnFootprint} bg-white text-slate-600 border border-slate-200 hover:text-rose-600 hover:border-rose-300 shadow-2xs`}
+                              >
+                                <span>Cancel Job</span>
+                              </button>
+                            )
+                          ) : isPrinting ? (
+                            <div className={`${btnFootprint} font-mono bg-blue-50/70 text-blue-700 border border-blue-200`}>
+                              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse mr-1.5 shrink-0" />
+                              <span>Printing...</span>
+                            </div>
+                          ) : (
+                            <div className={`${btnFootprint} font-mono bg-slate-50 text-slate-400 border border-slate-100`}>
+                              <span>In Queue</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
-}
+};

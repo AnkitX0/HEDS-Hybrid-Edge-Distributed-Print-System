@@ -14,10 +14,10 @@ class PricingRule(Base):
     shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), default="Standard Pricing", nullable=False)
     paper_size = Column(String(20), default="A4", nullable=False)  # A4, A3, Letter
-    bw_per_page_cents = Column(Integer, default=200, nullable=False)  # minor units (₹2.00 = 200 paise)
+    bw_per_page_cents = Column(Integer, default=100, nullable=False)  # minor units (₹1.00 = 100 paise)
     color_per_page_cents = Column(Integer, default=1000, nullable=False)  # minor units (₹10.00 = 1000 paise)
-    duplex_discount_cents = Column(Integer, default=50, nullable=False)  # minor units per duplex sheet
-    minimum_order_cents = Column(Integer, default=200, nullable=False)
+    duplex_discount_cents = Column(Integer, default=0, nullable=False)  # minor units per duplex sheet
+    minimum_order_cents = Column(Integer, default=100, nullable=False)  # ₹1.00 base minimum
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)

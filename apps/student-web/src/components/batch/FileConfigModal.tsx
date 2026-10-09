@@ -332,7 +332,6 @@ export const FileConfigModal: React.FC<FileConfigModalProps> = ({
               >
                 <option value="PORTRAIT">Portrait</option>
                 <option value="LANDSCAPE">Landscape</option>
-                <option value="AUTO">Auto</option>
               </select>
             </div>
           </div>
@@ -408,8 +407,7 @@ export const FileConfigModal: React.FC<FileConfigModalProps> = ({
                 className="w-full h-9 px-2.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
               >
                 <option value="FIT">Fit to page</option>
-                <option value="ACTUAL">Actual size</option>
-                <option value="FILL">Fill page</option>
+                <option value="ACTUAL">Actual size (100%)</option>
               </select>
             </div>
 

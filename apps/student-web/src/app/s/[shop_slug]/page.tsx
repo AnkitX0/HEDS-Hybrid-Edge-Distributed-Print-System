@@ -29,6 +29,7 @@ import {
 } from "@/components/batch/ApplyAllModal";
 import { DuplicateSettingsModal } from "@/components/batch/DuplicateSettingsModal";
 import { BatchSummaryCard } from "@/components/batch/BatchSummaryCard";
+import { formatApiError } from "@/lib/api/client";
 
 export default function ShopOrderPage() {
   const params = useParams();
@@ -72,6 +73,9 @@ export default function ShopOrderPage() {
     return () => clearTimeout(timer);
   }, [successToast]);
 
+  // Sequence ref to discard stale out-of-order pricing responses
+  const quoteRequestIdRef = useRef(0);
+
   // Recalculate authoritative batch pricing whenever ready items change
   const refreshQuote = useCallback(
     async (currentItems: BatchDocumentItem[]) => {
@@ -84,12 +88,14 @@ export default function ShopOrderPage() {
         return;
       }
 
+      const reqId = ++quoteRequestIdRef.current;
       setIsCalculatingPrice(true);
+
       try {
         const payload = {
           items: readyItems.map((it) => ({
             document_id: it.document_id,
-            copies: it.copies,
+            copies: Math.max(1, it.copies || 1),
             color_mode: it.color_mode,
             duplex: it.duplex,
             paper_size: it.paper_size,
@@ -97,8 +103,8 @@ export default function ShopOrderPage() {
               it.page_range_mode === "custom" && it.page_range
                 ? it.page_range
                 : "all",
-            orientation: it.orientation,
-            scaling: it.scaling,
+            orientation: it.orientation === "AUTO" ? "PORTRAIT" : it.orientation,
+            scaling: it.scaling === "FILL" ? "FIT" : it.scaling,
           })),
         };
 
@@ -109,12 +115,21 @@ export default function ShopOrderPage() {
         });
 
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to calculate batch quote");
+          const errData = await res.json().catch(() => null);
+          const errMsg = formatApiError(errData, `Failed to calculate pricing (HTTP ${res.status})`);
+          console.error(`[Quote Error] ${res.status} /shops/${shopSlug}/pricing/quote:`, { status: res.status, errData });
+          throw new Error(errMsg);
         }
 
         const data: BatchPricingBreakdown = await res.json();
+
+        // Stale response guard: only apply if this is still the newest request
+        if (reqId !== quoteRequestIdRef.current) {
+          return;
+        }
+
         setPricingBreakdown(data);
+        setErrorMessage(null);
 
         // Update each item's calculated price locally
         setItems((prev) =>
@@ -131,9 +146,16 @@ export default function ShopOrderPage() {
           })
         );
       } catch (err: any) {
-        console.error("Quote error:", err);
+        if (reqId === quoteRequestIdRef.current) {
+          console.error("Pricing quote error:", err);
+          const userMsg = formatApiError(err, "Failed to calculate quote for your print settings.");
+          setErrorMessage(userMsg);
+          setPricingBreakdown(null);
+        }
       } finally {
-        setIsCalculatingPrice(false);
+        if (reqId === quoteRequestIdRef.current) {
+          setIsCalculatingPrice(false);
+        }
       }
     },
     [shopSlug]
@@ -220,7 +242,7 @@ export default function ShopOrderPage() {
         });
 
         // Trigger authoritative pricing quote calculation
-        refreshQuote(next);
+        setTimeout(() => refreshQuote(next), 0);
         return next;
       });
     } catch (err: any) {
@@ -237,7 +259,7 @@ export default function ShopOrderPage() {
           return item;
         })
       );
-      setErrorMessage(err.message || "Failed to upload files.");
+      setErrorMessage(formatApiError(err, "Failed to upload files."));
     }
   };
 
@@ -245,7 +267,7 @@ export default function ShopOrderPage() {
   const handleRemoveItem = (itemToRemove: BatchDocumentItem) => {
     setItems((prev) => {
       const next = prev.filter((it) => it.id !== itemToRemove.id);
-      refreshQuote(next);
+      setTimeout(() => refreshQuote(next), 0);
       return next;
     });
   };
@@ -258,7 +280,7 @@ export default function ShopOrderPage() {
       const temp = next[idx - 1];
       next[idx - 1] = next[idx];
       next[idx] = temp;
-      refreshQuote(next);
+      setTimeout(() => refreshQuote(next), 0);
       return next;
     });
   };
@@ -271,7 +293,7 @@ export default function ShopOrderPage() {
       const temp = next[idx + 1];
       next[idx + 1] = next[idx];
       next[idx] = temp;
-      refreshQuote(next);
+      setTimeout(() => refreshQuote(next), 0);
       return next;
     });
   };
@@ -286,7 +308,7 @@ export default function ShopOrderPage() {
   const handleSaveConfig = (updated: BatchDocumentItem) => {
     setItems((prev) => {
       const next = prev.map((it) => (it.id === updated.id ? updated : it));
-      refreshQuote(next);
+      setTimeout(() => refreshQuote(next), 0);
       return next;
     });
     setSuccessToast(`Updated settings for "${updated.name}"`);
@@ -319,7 +341,7 @@ export default function ShopOrderPage() {
           page_range: "all",
         };
       });
-      refreshQuote(next);
+      setTimeout(() => refreshQuote(next), 0);
       return next;
     });
     setSuccessToast(`Settings copied to ${targetIds.length} file(s)`);
@@ -346,7 +368,7 @@ export default function ShopOrderPage() {
           scaling: settings.scaling !== undefined ? settings.scaling : it.scaling,
         };
       });
-      refreshQuote(next);
+      setTimeout(() => refreshQuote(next), 0);
       return next;
     });
     setSuccessToast(`Applied settings to all ${items.length} files`);
@@ -367,6 +389,16 @@ export default function ShopOrderPage() {
       return;
     }
 
+    if (isCalculatingPrice) {
+      setErrorMessage("Calculating latest pricing quote. Please wait a moment.");
+      return;
+    }
+
+    if (!pricingBreakdown || pricingBreakdown.final_amount_cents <= 0) {
+      setErrorMessage("Unable to proceed without a valid server pricing quote. Please check document settings.");
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMessage(null);
 
@@ -374,7 +406,7 @@ export default function ShopOrderPage() {
       const payload = {
         items: readyItems.map((it) => ({
           document_id: it.document_id,
-          copies: it.copies,
+          copies: Math.max(1, it.copies || 1),
           color_mode: it.color_mode,
           duplex: it.duplex,
           paper_size: it.paper_size,
@@ -382,8 +414,8 @@ export default function ShopOrderPage() {
             it.page_range_mode === "custom" && it.page_range
               ? it.page_range
               : "all",
-          orientation: it.orientation,
-          scaling: it.scaling,
+          orientation: it.orientation === "AUTO" ? "PORTRAIT" : it.orientation,
+          scaling: it.scaling === "FILL" ? "FIT" : it.scaling,
         })),
       };
 
@@ -394,8 +426,10 @@ export default function ShopOrderPage() {
       });
 
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || "Failed to create batch order");
+        const errJson = await res.json().catch(() => null);
+        const errMsg = formatApiError(errJson, `Failed to create batch order (HTTP ${res.status})`);
+        console.error(`[Checkout Error] ${res.status} /shops/${shopSlug}/orders/batch:`, { status: res.status, errJson });
+        throw new Error(errMsg);
       }
 
       const orderData = await res.json();
@@ -413,13 +447,18 @@ export default function ShopOrderPage() {
       });
 
       if (!payRes.ok) {
-        throw new Error("Payment execution failed");
+        const payErr = await payRes.json().catch(() => null);
+        const errMsg = formatApiError(payErr, `Payment execution failed (HTTP ${payRes.status})`);
+        console.error(`[Payment Error] ${payRes.status} /orders/${guestToken}/payment:`, { status: payRes.status, payErr });
+        throw new Error(errMsg);
       }
 
       // Navigate to order tracking page
       router.push(`/orders/${guestToken}`);
     } catch (err: any) {
-      setErrorMessage(err.message || "An error occurred during checkout.");
+      console.error("Checkout process failed:", err);
+      const userMsg = formatApiError(err, "An error occurred during checkout.");
+      setErrorMessage(userMsg);
       setIsSubmitting(false);
     }
   };

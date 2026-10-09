@@ -330,7 +330,6 @@ export const FileConfigSheet: React.FC<FileConfigSheetProps> = ({
               >
                 <option value="PORTRAIT">Portrait</option>
                 <option value="LANDSCAPE">Landscape</option>
-                <option value="AUTO">Auto</option>
               </select>
             </div>
           </div>
@@ -403,8 +402,7 @@ export const FileConfigSheet: React.FC<FileConfigSheetProps> = ({
                 className="w-full min-h-[44px] px-2.5 text-xs bg-white border border-slate-300 rounded-xl font-medium text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
               >
                 <option value="FIT">Fit to page</option>
-                <option value="ACTUAL">Actual size</option>
-                <option value="FILL">Fill page</option>
+                <option value="ACTUAL">Actual size (100%)</option>
               </select>
             </div>
 

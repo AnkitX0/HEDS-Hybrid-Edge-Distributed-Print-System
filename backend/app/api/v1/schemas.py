@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.modules.orders.models import OrderState, ColorMode, Orientation, Scaling
 from app.modules.printers.models import PrinterStatus, PrinterAdapterType
@@ -75,6 +75,55 @@ class BatchOrderItemInput(BaseModel):
     page_range: str = "all"
     orientation: Orientation = Orientation.PORTRAIT
     scaling: Scaling = Scaling.FIT
+
+    @field_validator("copies", mode="before")
+    @classmethod
+    def validate_copies(cls, v):
+        try:
+            val = int(v)
+            return max(1, min(100, val))
+        except (ValueError, TypeError):
+            return 1
+
+    @field_validator("color_mode", mode="before")
+    @classmethod
+    def validate_color_mode(cls, v):
+        if isinstance(v, ColorMode):
+            return v
+        s = str(v or "BW").strip().upper()
+        return ColorMode.COLOR if s == "COLOR" else ColorMode.BW
+
+    @field_validator("orientation", mode="before")
+    @classmethod
+    def validate_orientation(cls, v):
+        if isinstance(v, Orientation):
+            return v
+        s = str(v or "PORTRAIT").strip().upper()
+        if s == "LANDSCAPE":
+            return Orientation.LANDSCAPE
+        return Orientation.PORTRAIT
+
+    @field_validator("scaling", mode="before")
+    @classmethod
+    def validate_scaling(cls, v):
+        if isinstance(v, Scaling):
+            return v
+        s = str(v or "FIT").strip().upper()
+        if s == "ACTUAL":
+            return Scaling.ACTUAL
+        return Scaling.FIT
+
+    @field_validator("paper_size", mode="before")
+    @classmethod
+    def validate_paper_size(cls, v):
+        s = str(v or "A4").strip().upper()
+        return s if s else "A4"
+
+    @field_validator("page_range", mode="before")
+    @classmethod
+    def validate_page_range(cls, v):
+        s = str(v or "all").strip()
+        return s if s else "all"
 
 
 # Pricing Quote Schemas

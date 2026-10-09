@@ -72,7 +72,11 @@ async function safeParseResponse<T>(res: Response): Promise<T> {
         errorMessage = payload.detail;
       } else if (Array.isArray(payload.detail)) {
         errorCode = "VALIDATION_ERROR";
-        errorMessage = payload.detail.map((d: any) => d.msg || "Invalid field").join(", ");
+        errorMessage = payload.detail.map((d: any) => {
+          const loc = Array.isArray(d.loc) ? d.loc.filter((p: any) => p !== "body").join(".") : "";
+          const msg = d.msg || "Invalid value";
+          return loc ? `${loc}: ${msg}` : msg;
+        }).join("; ");
         details = payload.detail;
       } else if (payload.error) {
         errorCode = payload.error.code || errorCode;
@@ -178,3 +182,54 @@ export const apiClient = {
     return this.request<T>(endpoint, { ...options, method: "DELETE" });
   },
 };
+
+/**
+ * Normalizes any error object, string, FastAPI detail, or network failure
+ * into a human-readable, diagnostic-safe error message. Never returns "[object Object]".
+ */
+export function formatApiError(err: unknown, fallbackMessage = "An unexpected error occurred"): string {
+  if (!err) return fallbackMessage;
+
+  if (typeof err === "string") {
+    const trimmed = err.trim();
+    if (trimmed && trimmed !== "[object Object]") return trimmed;
+    return fallbackMessage;
+  }
+
+  if (err instanceof ApiError) {
+    return err.message;
+  }
+
+  if (err instanceof Error) {
+    if (err.message && err.message !== "[object Object]") {
+      return err.message;
+    }
+  }
+
+  // Handle object payload with 'detail' (FastAPI)
+  if (typeof err === "object" && err !== null) {
+    const record = err as Record<string, any>;
+    if (typeof record.detail === "string") {
+      return record.detail;
+    }
+    if (Array.isArray(record.detail)) {
+      const messages = record.detail.map((item: any) => {
+        if (!item || typeof item !== "object") return String(item);
+        const loc = Array.isArray(item.loc)
+          ? item.loc.filter((p: any) => p !== "body").join(".")
+          : "";
+        const msg = item.msg || item.message || "Invalid value";
+        return loc ? `${loc}: ${msg}` : msg;
+      });
+      return messages.length > 0 ? messages.join("; ") : fallbackMessage;
+    }
+    if (record.error && typeof record.error === "object") {
+      if (typeof record.error.message === "string") return record.error.message;
+    }
+    if (typeof record.message === "string" && record.message !== "[object Object]") {
+      return record.message;
+    }
+  }
+
+  return fallbackMessage;
+}

@@ -208,7 +208,6 @@ export const ApplyAllModal: React.FC<ApplyAllModalProps> = ({
               <option value="keep">Keep individual settings</option>
               <option value="PORTRAIT">Portrait</option>
               <option value="LANDSCAPE">Landscape</option>
-              <option value="AUTO">Auto</option>
             </select>
           </div>
 

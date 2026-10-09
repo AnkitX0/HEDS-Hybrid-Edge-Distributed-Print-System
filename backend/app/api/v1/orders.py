@@ -424,17 +424,22 @@ async def create_student_order(
             if not item_doc:
                 raise HTTPException(status_code=404, detail=f"Document '{doc_id_str}' not found")
 
-            c_mode = ColorMode(it.get("color_mode", "BW").upper())
-            orient = Orientation(it.get("orientation", "PORTRAIT").upper())
-            scale = Scaling(it.get("scaling", "FIT").upper())
+            raw_cmode = str(it.get("color_mode", "BW")).strip().upper()
+            c_mode = ColorMode.COLOR if raw_cmode == "COLOR" else ColorMode.BW
+
+            raw_orient = str(it.get("orientation", "PORTRAIT")).strip().upper()
+            orient = Orientation.LANDSCAPE if raw_orient == "LANDSCAPE" else Orientation.PORTRAIT
+
+            raw_scale = str(it.get("scaling", "FIT")).strip().upper()
+            scale = Scaling.ACTUAL if raw_scale == "ACTUAL" else Scaling.FIT
 
             spec = PrintSpecification(
                 order_id=uuid.uuid4(),
                 copies=max(1, int(it.get("copies", 1))),
                 color_mode=c_mode,
                 duplex=bool(it.get("duplex", False)),
-                paper_size=str(it.get("paper_size", "A4")).upper(),
-                page_range=str(it.get("page_range", "all")).strip(),
+                paper_size=str(it.get("paper_size", "A4")).strip().upper() or "A4",
+                page_range=str(it.get("page_range", "all")).strip() or "all",
                 orientation=orient,
                 scaling=scale,
             )
@@ -559,15 +564,24 @@ async def create_student_order(
             detail="Either document_id, file, or batch_items_json must be provided.",
         )
 
+    raw_cmode = str(color_mode).strip().upper()
+    c_mode = ColorMode.COLOR if raw_cmode == "COLOR" else ColorMode.BW
+
+    raw_orient = str(orientation).strip().upper()
+    orient = Orientation.LANDSCAPE if raw_orient == "LANDSCAPE" else Orientation.PORTRAIT
+
+    raw_scale = str(scaling).strip().upper()
+    scale = Scaling.ACTUAL if raw_scale == "ACTUAL" else Scaling.FIT
+
     spec = PrintSpecification(
         order_id=uuid.uuid4(),
         copies=max(1, copies),
-        color_mode=ColorMode(color_mode.upper()),
+        color_mode=c_mode,
         duplex=duplex,
-        paper_size=paper_size.upper(),
-        page_range=page_range.strip(),
-        orientation=Orientation(orientation.upper()),
-        scaling=Scaling(scaling.upper()),
+        paper_size=str(paper_size).strip().upper() or "A4",
+        page_range=str(page_range).strip() or "all",
+        orientation=orient,
+        scaling=scale,
     )
 
     breakdown = pricing_engine.calculate_price(

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Copy, Check } from "lucide-react";
 import { BatchDocumentItem } from "./types";
 
@@ -28,13 +28,25 @@ export const DuplicateSheet: React.FC<DuplicateSheetProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (sourceItem) {
+      const candidates = allItems.filter(
+        (it) => it.id !== sourceItem.id && it.status === "READY"
+      );
+      if (candidates.length === 1) {
+        setSelectedTargetIds([candidates[0].id]);
+      } else {
+        setSelectedTargetIds([]);
+      }
+    }
+  }, [sourceItem, allItems]);
+
   if (!isOpen || !sourceItem) return null;
 
   const targetCandidates = allItems.filter(
     (it) => it.id !== sourceItem.id && it.status === "READY"
-  );
-  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>(
-    targetCandidates.length === 1 ? [targetCandidates[0].id] : []
   );
 
   const toggleTarget = (id: string) => {

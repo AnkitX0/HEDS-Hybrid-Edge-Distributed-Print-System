@@ -57,7 +57,9 @@ export const BatchSummaryCard: React.FC<BatchSummaryCardProps> = ({
     processingCount === 0 &&
     errorCount === 0 &&
     !isCalculatingPrice &&
-    !disabled;
+    !disabled &&
+    pricing !== null &&
+    pricing.final_amount_cents > 0;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-5">

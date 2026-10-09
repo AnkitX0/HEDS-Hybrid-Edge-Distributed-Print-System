@@ -165,6 +165,7 @@ async def upload_multiple_shop_documents(
             await db.flush()
             doc_items.append(
                 DocumentItemDetail(
+                    id=str(item_doc.id),
                     document_id=str(item_doc.id),
                     filename=item["filename"],
                     page_count=item["page_count"],

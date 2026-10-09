@@ -210,7 +210,7 @@ export default function ShopOrderPage() {
             }
             return {
               ...item,
-              document_id: matchingUploaded.id,
+              document_id: matchingUploaded.document_id || matchingUploaded.id,
               page_count: matchingUploaded.page_count || 1,
               status: "READY" as const,
               error: undefined,
@@ -362,7 +362,10 @@ export default function ShopOrderPage() {
   // Checkout and Order Creation
   const handleCheckout = async () => {
     const readyItems = items.filter((it) => it.status === "READY" && it.document_id);
-    if (!readyItems.length || !shop) return;
+    if (!readyItems.length || !shop) {
+      setErrorMessage("Please ensure at least one document is ready for printing before checkout.");
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMessage(null);

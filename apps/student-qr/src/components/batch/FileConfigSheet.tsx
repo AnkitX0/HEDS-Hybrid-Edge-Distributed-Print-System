@@ -90,25 +90,19 @@ export const FileConfigSheet: React.FC<FileConfigSheetProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen || !item) return null;
-
-  const ext = item.name.split(".").pop()?.toLowerCase() || "";
+  const ext = item?.name.split(".").pop()?.toLowerCase() || "";
   const isImage = ["jpg", "jpeg", "png", "webp"].includes(ext);
 
-  // Form State
-  const [copies, setCopies] = useState<number>(item.copies || 1);
-  const [colorMode, setColorMode] = useState<ColorMode>(item.color_mode || "BW");
-  const [duplex, setDuplex] = useState<boolean>(isImage ? false : item.duplex || false);
-  const [paperSize, setPaperSize] = useState<string>(item.paper_size || "A4");
-  const [orientation, setOrientation] = useState<Orientation>(item.orientation || "PORTRAIT");
-  const [pageRangeMode, setPageRangeMode] = useState<"all" | "custom">(
-    item.page_range_mode || (item.page_range && item.page_range !== "all" ? "custom" : "all")
-  );
-  const [customPageRange, setCustomPageRange] = useState<string>(
-    item.page_range && item.page_range !== "all" ? item.page_range : ""
-  );
-  const [scaling, setScaling] = useState<Scaling>(item.scaling || "FIT");
-  const [margins, setMargins] = useState<Margins>(item.margins || "DEFAULT");
+  // Form State (unconditional to obey React Rules of Hooks)
+  const [copies, setCopies] = useState<number>(1);
+  const [colorMode, setColorMode] = useState<ColorMode>("BW");
+  const [duplex, setDuplex] = useState<boolean>(false);
+  const [paperSize, setPaperSize] = useState<string>("A4");
+  const [orientation, setOrientation] = useState<Orientation>("PORTRAIT");
+  const [pageRangeMode, setPageRangeMode] = useState<"all" | "custom">("all");
+  const [customPageRange, setCustomPageRange] = useState<string>("");
+  const [scaling, setScaling] = useState<Scaling>("FIT");
+  const [margins, setMargins] = useState<Margins>("DEFAULT");
   const [rangeError, setRangeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,6 +121,8 @@ export const FileConfigSheet: React.FC<FileConfigSheetProps> = ({
       setRangeError(null);
     }
   }, [item, isImage]);
+
+  if (!isOpen || !item) return null;
 
   const handleRangeChange = (val: string) => {
     setCustomPageRange(val);

@@ -201,7 +201,7 @@ export default function ShopStorefrontPage() {
             }
             return {
               ...item,
-              document_id: matching.id,
+              document_id: matching.document_id || matching.id,
               page_count: matching.page_count || 1,
               status: "READY" as const,
               error: undefined,
@@ -343,7 +343,11 @@ export default function ShopStorefrontPage() {
   // Checkout and Pay
   const handleCheckoutAndPay = async () => {
     const readyItems = items.filter((it) => it.status === "READY" && it.document_id);
-    if (!readyItems.length || !shop) return;
+    if (!readyItems.length || !shop) {
+      setErrorMessage("Please ensure at least one document is ready for printing before checkout.");
+      setIsReviewOpen(false);
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMessage(null);

@@ -35,14 +35,15 @@ export const ApplyAllModal: React.FC<ApplyAllModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
+  // State hooks unconditionally called
   const [colorOption, setColorOption] = useState<"keep" | "BW" | "COLOR">("keep");
   const [duplexOption, setDuplexOption] = useState<"keep" | "single" | "duplex">("keep");
   const [copiesOption, setCopiesOption] = useState<number | "keep">("keep");
   const [paperOption, setPaperOption] = useState<string>("keep");
   const [orientationOption, setOrientationOption] = useState<Orientation | "keep">("keep");
   const [scalingOption, setScalingOption] = useState<Scaling | "keep">("keep");
+
+  if (!isOpen) return null;
 
   const handleApply = () => {
     const payload: BatchSettingsPayload = {};

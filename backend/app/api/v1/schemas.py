@@ -37,6 +37,7 @@ class ShopPublicInfo(BaseModel):
 
 # Document & Upload Schemas
 class DocumentItemDetail(BaseModel):
+    id: Optional[str] = None
     document_id: Optional[str] = None
     filename: str
     page_count: int

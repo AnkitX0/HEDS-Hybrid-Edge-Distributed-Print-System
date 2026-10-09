@@ -73,7 +73,9 @@ export const BatchReviewSheet: React.FC<BatchReviewSheetProps> = ({
     processingCount === 0 &&
     errorCount === 0 &&
     !isCalculatingPrice &&
-    !disabled;
+    !disabled &&
+    pricing !== null &&
+    pricing.final_amount_cents > 0;
 
   return (
     <div

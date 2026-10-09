@@ -2,6 +2,9 @@
 
 This document details production deployment topology, Docker orchestration, environment configuration, database lifecycle, and on-premise Edge Agent operations for the **Hybrid Edge Distributed Print System (HEDS)**.
 
+> **Looking for Free Cloud Deployment (Render + Vercel + Neon + Cloudflare R2)?**
+> See the dedicated [Public Cloud & Mentor Demo Guide](public-demo-deployment-guide.md).
+
 ---
 
 ## 1. System Topology

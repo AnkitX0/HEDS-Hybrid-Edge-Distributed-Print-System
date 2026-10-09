@@ -266,8 +266,14 @@ async def test_multiple_document_order_full_flow():
 
         headers = {"X-Agent-ID": agent_id, "X-Agent-Key": "agent-dev-key-12345"}
 
-        # Boost priority of all 3 jobs to 1
+        # Boost priority of all 3 jobs to 1 and isolate queue
         async with AsyncSessionLocal() as session:
+            from sqlalchemy import update
+            await session.execute(
+                update(PrintJob)
+                .where(PrintJob.order_id != uuid.UUID(order_id), PrintJob.status.in_([JobStatus.QUEUED, JobStatus.DISPATCHED]))
+                .values(status=JobStatus.COMPLETED)
+            )
             jobs_to_boost = (
                 await session.execute(select(PrintJob).where(PrintJob.order_id == uuid.UUID(order_id)))
             ).scalars().all()

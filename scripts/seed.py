@@ -42,6 +42,12 @@ from app.models import (
 
 
 def seed():
+    from app.core.config import settings
+    env = (getattr(settings, "ENVIRONMENT", getattr(settings, "APP_ENV", "development"))).lower()
+    if env in ("production", "prod") and "--confirm-reset-production" not in sys.argv:
+        print("[SEED ERROR] Refusing to wipe database in PRODUCTION environment without --confirm-reset-production flag.")
+        sys.exit(1)
+
     session = SyncSessionLocal()
     try:
         print("[SEED] Clearing existing data...")

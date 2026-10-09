@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Clock, Layers, Printer, BarChart2, CheckCircle, AlertOctagon, RotateCw } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
@@ -47,7 +47,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -58,11 +58,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [dateRange]);
 
   useEffect(() => {
     fetchAnalytics();
-  }, [dateRange]);
+  }, [fetchAnalytics]);
 
   const maxPeakPages = data?.peak_hours
     ? Math.max(...data.peak_hours.map((h) => h.pages), 1)

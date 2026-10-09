@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+const BACKEND_URL = (
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000"
+).replace(/\/+$/, "");
 
 async function proxy(request: NextRequest, { params }: { params: { path: string[] } }) {
   const path = params.path ? params.path.join("/") : "";
@@ -62,7 +66,7 @@ async function proxy(request: NextRequest, { params }: { params: { path: string[
       {
         error: {
           code: "BACKEND_UNAVAILABLE",
-          message: "Cannot connect to HEDS backend service. Please verify the backend is running.",
+          message: "Cannot connect to HEDS backend service. Please verify BACKEND_URL is configured and the backend is running.",
         },
       },
       { status: 503 }

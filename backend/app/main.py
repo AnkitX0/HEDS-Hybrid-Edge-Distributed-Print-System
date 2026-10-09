@@ -14,6 +14,7 @@ from app.core.exceptions import HEDSException
 from app.core.database import AsyncSessionLocal
 from app.modules.queue.service import queue_service
 from app.workers.cleanup import cleanup_worker
+from app.workers.mock_print_worker import mock_print_worker
 
 # Routers
 from app.api.v1.auth import router as auth_router
@@ -45,11 +46,24 @@ async def lifespan(app: FastAPI):
     logger.info("Starting HEDS Backend Service...")
     reconcile_task = asyncio.create_task(background_reconciliation_worker())
     cleanup_task = asyncio.create_task(cleanup_worker.run_periodic_cleanup_loop(interval_seconds=3600))
+    mock_worker_task = None
+    if settings.ENABLE_MOCK_PRINT_WORKER:
+        logger.info("[STARTUP] Cloud Mock Print Worker is enabled for demonstration mode.")
+        mock_worker_task = asyncio.create_task(
+            mock_print_worker.run_loop(interval_seconds=settings.MOCK_WORKER_INTERVAL_SECONDS)
+        )
+
     yield
+
     reconcile_task.cancel()
     cleanup_task.cancel()
+    if mock_worker_task:
+        mock_worker_task.cancel()
+    tasks_to_gather = [reconcile_task, cleanup_task]
+    if mock_worker_task:
+        tasks_to_gather.append(mock_worker_task)
     try:
-        await asyncio.gather(reconcile_task, cleanup_task, return_exceptions=True)
+        await asyncio.gather(*tasks_to_gather, return_exceptions=True)
     except asyncio.CancelledError:
         pass
     logger.info("HEDS Backend Service shutdown complete.")
@@ -157,7 +171,7 @@ async def readiness_check():
                 "status": "unhealthy",
                 "service": "heds-backend",
                 "database": "disconnected",
-                "detail": str(e),
+                "detail": "Database connectivity check failed. Check server logs.",
             },
         )
 

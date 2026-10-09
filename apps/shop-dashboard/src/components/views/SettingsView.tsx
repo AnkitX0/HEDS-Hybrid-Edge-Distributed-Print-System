@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Settings,
   Save,
@@ -84,7 +84,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ shopData }) => {
   // Active Job Deletion Warning Modal State
   const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
 
-  const fetchPrintersAndAgents = async () => {
+  const fetchPrintersAndAgents = useCallback(async () => {
     setIsLoadingPrinters(true);
     try {
       const [printersRes, agentsRes, settingsRes] = await Promise.all([
@@ -104,11 +104,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ shopData }) => {
     } finally {
       setIsLoadingPrinters(false);
     }
-  };
+  }, [shopName, shopSlug]);
 
   useEffect(() => {
     fetchPrintersAndAgents();
-  }, []);
+  }, [fetchPrintersAndAgents]);
 
   const handleSaveGeneral = async (e: React.FormEvent) => {
     e.preventDefault();

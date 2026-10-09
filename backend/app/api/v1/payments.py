@@ -59,13 +59,15 @@ async def process_student_payment(
         OrderState.COMPLETED,
     ]:
         payment = order.payment
+        is_mock = not payment or payment.gateway == PaymentGatewayType.MOCK
+        msg = "[DEMO/MOCK] Payment already processed and order queued." if is_mock else "Payment already processed and order queued."
         return PaymentResponse(
             payment_id=str(payment.id) if payment else "existing",
             order_id=str(order.id),
             amount_cents=order.total_amount_cents,
             status="SUCCESS",
             gateway=payment.gateway.value if payment else "MOCK",
-            message="Payment already processed and order queued.",
+            message=msg,
             gateway_order_id=payment.gateway_order_id if payment else None,
             currency=order.currency,
         )
@@ -127,6 +129,13 @@ async def process_student_payment(
         )
 
     # Mock mode or simulated execution
+    env_lower = (settings.ENVIRONMENT or settings.APP_ENV or "development").lower()
+    if env_lower in ("production", "prod") and not settings.ALLOW_MOCK_PAYMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Mock payments are disabled in production environment.",
+        )
+
     is_success = (payload.simulate_status or "success").lower() == "success"
 
     res_pay = await db.execute(select(Payment).where(Payment.order_id == order.id))
@@ -157,7 +166,7 @@ async def process_student_payment(
             order=order,
             target_state=OrderState.PAID,
             actor_type="PAYMENT_GATEWAY",
-            reason=f"Payment {payment.gateway_payment_id} captured successfully",
+            reason=f"[DEMO/MOCK] Payment {payment.gateway_payment_id} recorded for testing",
         )
         await queue_service.enqueue_order(session=db, order=order)
         await db.commit()
@@ -168,7 +177,7 @@ async def process_student_payment(
             amount_cents=order.total_amount_cents,
             status="SUCCESS",
             gateway="MOCK",
-            message="Payment confirmed and print job placed in queue.",
+            message="[DEMO/MOCK] Mock payment processed for testing. No real money was charged.",
             gateway_order_id=intent["gateway_order_id"],
             currency=order.currency,
         )
@@ -178,7 +187,7 @@ async def process_student_payment(
             order=order,
             target_state=OrderState.PAYMENT_FAILED,
             actor_type="PAYMENT_GATEWAY",
-            reason="Payment rejected by gateway simulation",
+            reason="[DEMO/MOCK] Payment rejected by gateway simulation",
         )
         await db.commit()
 
@@ -188,7 +197,7 @@ async def process_student_payment(
             amount_cents=order.total_amount_cents,
             status="FAILED",
             gateway="MOCK",
-            message="Payment declined.",
+            message="[DEMO/MOCK] Mock payment declined per simulation.",
             gateway_order_id=intent["gateway_order_id"],
             currency=order.currency,
         )

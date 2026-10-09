@@ -18,21 +18,34 @@ class StorageService:
             self.local_dir = Path(settings.STORAGE_LOCAL_DIR)
             self.local_dir.mkdir(parents=True, exist_ok=True)
         elif self.backend in ("minio", "s3"):
+            endpoint = settings.MINIO_ENDPOINT
+            if endpoint.startswith("https://"):
+                endpoint = endpoint[len("https://"):]
+            elif endpoint.startswith("http://"):
+                endpoint = endpoint[len("http://"):]
+            endpoint = endpoint.rstrip("/")
+
+            region = getattr(settings, "S3_REGION", "auto")
             self.minio_client = Minio(
-                settings.MINIO_ENDPOINT,
+                endpoint,
                 access_key=settings.MINIO_ACCESS_KEY,
                 secret_key=settings.MINIO_SECRET_KEY,
                 secure=settings.MINIO_SECURE,
+                region=region if region != "auto" else None,
             )
             # Ensure bucket exists
             try:
                 if not self.minio_client.bucket_exists(settings.MINIO_BUCKET_NAME):
                     self.minio_client.make_bucket(settings.MINIO_BUCKET_NAME)
             except Exception as e:
-                logger.warning(f"Failed to check/create MinIO bucket: {e}. Falling back to local storage.")
-                self.backend = "local"
-                self.local_dir = Path(settings.STORAGE_LOCAL_DIR)
-                self.local_dir.mkdir(parents=True, exist_ok=True)
+                is_dev = getattr(settings, "APP_ENV", "development").lower() in ("development", "test")
+                if is_dev:
+                    logger.warning(f"Failed to check/create MinIO bucket: {e}. Falling back to local storage in development.")
+                    self.backend = "local"
+                    self.local_dir = Path(settings.STORAGE_LOCAL_DIR)
+                    self.local_dir.mkdir(parents=True, exist_ok=True)
+                else:
+                    logger.info(f"S3/R2 bucket check note: {e}. Assuming pre-created bucket '{settings.MINIO_BUCKET_NAME}'.")
 
     async def save_file(self, file_obj: BinaryIO, filename: str, content_type: str) -> str:
         """

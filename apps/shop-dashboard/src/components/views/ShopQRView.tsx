@@ -9,7 +9,7 @@ interface ShopQRViewProps {
 }
 
 export const ShopQRView: React.FC<ShopQRViewProps> = ({ shopSlug = "campus-xerox", shopName = "Campus Xerox & Print Hub" }) => {
-  const baseUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL || "http://localhost:3002";
+  const baseUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL || (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:3002` : "http://localhost:3002");
   const portalUrl = baseUrl.endsWith("/") ? `${baseUrl}s/${shopSlug}` : `${baseUrl}/s/${shopSlug}`;
 
   return (

@@ -27,6 +27,7 @@ setup:
 	$(PIP) install -e agent/
 	cd apps/student-web && npm install
 	cd apps/shop-dashboard && npm install
+	cd apps/student-qr && npm install
 
 docker-up:
 	docker compose up --build -d
@@ -72,6 +73,11 @@ test:
 
 test-rel:
 	PYTHONPATH=backend:agent $(PYTHON) -m pytest tests/reliability/ -v
+
+lint:
+	cd apps/student-qr && npm run lint
+	cd apps/student-web && npm run lint
+	cd apps/shop-dashboard && npm run lint
 
 clean:
 	rm -rf .pytest_cache .coverage htmlcov local_queue.db storage_data

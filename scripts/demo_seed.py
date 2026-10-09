@@ -42,6 +42,12 @@ from app.models import (
 
 
 def seed_demo():
+    from app.core.config import settings
+    env = (getattr(settings, "ENVIRONMENT", getattr(settings, "APP_ENV", "development"))).lower()
+    if env in ("production", "prod") and "--confirm-reset-production" not in sys.argv:
+        print("[DEMO SEED ERROR] Refusing to wipe database in PRODUCTION environment without --confirm-reset-production flag.")
+        sys.exit(1)
+
     session = SyncSessionLocal()
     try:
         print("[DEMO SEED] Resetting database to clean demonstration state...")
